@@ -50,6 +50,22 @@ PulseAudio/PipeWire *Monitor* source as the microphone.
 - Tips: put the compact window (**Settings → Compact window**) on a second display, or beside the
   meeting window.
 
+### Separate answer window & background mode
+
+- **Answer window** (button on the Session page) opens a second, read-only window that mirrors the
+  suggested answers. Move it to another monitor, or minimize the dashboard — the app disables
+  background throttling (`backgroundThrottling: false`) so capture, transcription and answer
+  generation keep running while the dashboard is not in the foreground.
+- The answer window is a **normal OS window**. It is kept out of a screen share only by what you
+  choose to share — a single application window, or a display you are not sharing. The app does
+  **not** use content protection, window hiding, or any screen-capture evasion, and does not claim
+  to be invisible to capture. If you share your whole desktop, the window is visible.
+- `always-on-top` is used for the answer window so it floats above a full-screen meeting app on
+  your own screen; this has no effect on what the other participants see.
+- This could not be verified against a real macOS screen share or `minimize()` in this project's
+  Linux test containers; the broadcast of answers to the second window and background event flow
+  are covered by the automated end-to-end test.
+
 ## Keyboard shortcuts
 
 Shortcuts are **window-local**: they only work while Interview Copilot is focused, so they never

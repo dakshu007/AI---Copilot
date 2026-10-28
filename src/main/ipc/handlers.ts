@@ -40,6 +40,8 @@ export interface IpcDeps {
   privacy: PrivacyController;
   session: SessionController;
   devServerUrl?: string;
+  toggleOverlay(): Promise<boolean>;
+  isOverlayOpen(): boolean;
 }
 
 function messageFor(error: unknown, secrets: Array<string | undefined>): string {
@@ -199,6 +201,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     await shell.openExternal(ExternalUrlSchema.parse(payload));
   });
   handle(IPC.appRequestMicrophone, () => requestMicrophoneAccess());
+  handle(IPC.appToggleOverlay, () => deps.toggleOverlay());
+  handle(IPC.appOverlayState, () => deps.isOverlayOpen());
   handle(IPC.appOpenPrivacySettings, async (_e, payload) => {
     const pane = z.enum(['microphone', 'screen']).parse(payload);
     if (process.platform === 'darwin') await shell.openExternal(MAC_PRIVACY_URLS[pane]);

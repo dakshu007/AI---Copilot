@@ -39,4 +39,6 @@ export const IPC = {
   appOpenExternal: 'app:open-external',
   appRequestMicrophone: 'app:request-microphone',
   appOpenPrivacySettings: 'app:open-privacy-settings',
+  appToggleOverlay: 'app:toggle-overlay',
+  appOverlayState: 'app:overlay-state',
 } as const;

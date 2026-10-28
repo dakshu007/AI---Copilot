@@ -33,6 +33,8 @@ export interface SessionStore {
   summary?: MeetingSummary;
   summarizing: boolean;
   summaryError?: string;
+  /** Whether the separate answer window is currently open. */
+  overlayOpen: boolean;
 }
 
 export const initialSessionStore: SessionStore = {
@@ -49,6 +51,7 @@ export const initialSessionStore: SessionStore = {
   notices: [],
   levels: [],
   summarizing: false,
+  overlayOpen: false,
 };
 
 export type SessionAction =
@@ -170,6 +173,8 @@ function applyEvent(store: SessionStore, event: SessionEvent): SessionStore {
       return { ...store, summarizing: false, summary: event.summary, summaryError: undefined };
     case 'summary-error':
       return { ...store, summarizing: false, summaryError: event.message };
+    case 'overlay-state':
+      return { ...store, overlayOpen: event.open };
     default:
       return store;
   }

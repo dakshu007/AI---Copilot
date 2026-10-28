@@ -79,6 +79,9 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
     void unwrap(api().app.info())
       .then(setPlatform)
       .catch(() => undefined);
+    void unwrap(api().app.overlayState())
+      .then((open) => dispatch({ type: 'event', event: { type: 'overlay-state', open } }))
+      .catch(() => undefined);
     void unwrap(api().session.snapshot())
       .then((snapshot) =>
         dispatch({

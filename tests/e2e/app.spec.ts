@@ -141,6 +141,34 @@ test('team meeting mode suggests replies, coaches speaking and summarises the me
   await expect(page.getByTestId('meeting-notes')).toHaveValue(/database credentials/);
 });
 
+test('a separate answer window mirrors the dashboard answers and stays in sync', async () => {
+  launched = await launchApp();
+  const { page, app } = launched;
+
+  // Open the private answer window.
+  await page.getByTestId('toggle-overlay').click();
+  const overlay = await app.waitForEvent('window', { predicate: (w) => w.url().includes('#overlay') });
+  await overlay.waitForLoadState('domcontentloaded');
+  await expect(overlay.getByText('Answers', { exact: true })).toBeVisible();
+  // It explains it is a normal window, never claims to be hidden from capture.
+  await expect(overlay.getByText(/visible if you share your whole screen/i)).toBeVisible();
+
+  // The main dashboard reflects that the window is open.
+  await expect(page.getByTestId('toggle-overlay')).toHaveText(/Close answer window/);
+
+  // Ask a question on the dashboard; the answer appears in BOTH windows.
+  await page.getByTestId('practice-input').fill('How would you design a rate limiter?');
+  await page.getByTestId('practice-ask').click();
+  await expect(page.getByTestId('question-card').first().getByTestId('answer-text')).toBeVisible();
+  await expect(overlay.getByTestId('overlay-question-text')).toHaveText('How would you design a rate limiter?');
+  await expect(overlay.getByTestId('answer-text')).toBeVisible();
+
+  // Closing it from the dashboard updates the button and closes the window.
+  await page.getByTestId('toggle-overlay').click();
+  await expect(page.getByTestId('toggle-overlay')).toHaveText('Answer window');
+  await expect.poll(() => overlay.isClosed()).toBe(true);
+});
+
 test('permitted assistance requires acknowledgement and captures microphone audio end to end', async () => {
   // Local mock of an OpenAI-compatible transcription endpoint.
   let uploads = 0;

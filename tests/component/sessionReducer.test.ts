@@ -48,6 +48,13 @@ describe('sessionReducer', () => {
     expect(store.state).toBe('listening');
   });
 
+  it('tracks the answer-window open state', () => {
+    let store = sessionReducer(initialSessionStore, { type: 'event', event: { type: 'overlay-state', open: true } });
+    expect(store.overlayOpen).toBe(true);
+    store = sessionReducer(store, { type: 'event', event: { type: 'overlay-state', open: false } });
+    expect(store.overlayOpen).toBe(false);
+  });
+
   it('de-duplicates notices and keeps at most four', () => {
     let store = initialSessionStore;
     for (let i = 0; i < 6; i += 1) store = sessionReducer(store, { type: 'notice', level: 'info', message: `m${i}` });

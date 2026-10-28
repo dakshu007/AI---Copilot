@@ -21,7 +21,16 @@ const devServerUrl = !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undef
 enableMacSystemAudioFeatures();
 app.setName('Interview Copilot');
 
+// Keep the audio pipeline, transcription and answer generation running at full speed when the
+// dashboard is minimized or in the background. Without these, Chromium throttles background
+// renderer timers, which would stall capture during a meeting.
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+
 let mainWindow: BrowserWindow | null = null;
+/** Optional compact answer window the user can keep on a second monitor or beside Teams. */
+let overlayWindow: BrowserWindow | null = null;
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -74,6 +83,8 @@ async function createWindow(settings: SecureSettingsService): Promise<BrowserWin
       webSecurity: true,
       spellcheck: false,
       devTools: !app.isPackaged,
+      // Keep processing while minimized / in the background.
+      backgroundThrottling: false,
     },
   });
   // Intentionally NOT calling setContentProtection(): this app never hides itself from
@@ -83,6 +94,71 @@ async function createWindow(settings: SecureSettingsService): Promise<BrowserWin
   if (devServerUrl) await window.loadURL(devServerUrl);
   else await window.loadFile(join(__dirname, '../renderer/index.html'));
   return window;
+}
+
+/**
+ * A small, separate window that mirrors the latest suggested answers and transcript. The user
+ * can move it to a second monitor or keep it beside Teams, and share only their main screen or a
+ * single application window so this window is not in the shared view.
+ *
+ * This is NOT screen-capture evasion: it is a normal window. If the user shares the whole
+ * desktop (or this window), it is visible like any other window.
+ */
+async function createOverlayWindow(): Promise<BrowserWindow> {
+  const isMac = process.platform === 'darwin';
+  const window = new BrowserWindow({
+    width: 440,
+    height: 640,
+    minWidth: 320,
+    minHeight: 360,
+    show: false,
+    title: 'Answers — Interview Copilot',
+    backgroundColor: '#0b0d12',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    fullscreenable: false,
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    trafficLightPosition: isMac ? { x: 12, y: 12 } : undefined,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      spellcheck: false,
+      devTools: !app.isPackaged,
+      backgroundThrottling: false,
+    },
+  });
+  // Float above full-screen meeting apps on the user's own screen.
+  window.setAlwaysOnTop(true, 'floating');
+  if (isMac) window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  hardenWindow(window, { devServerUrl });
+  window.once('ready-to-show', () => window.show());
+  if (devServerUrl) await window.loadURL(`${devServerUrl}#overlay`);
+  else await window.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'overlay' });
+  return window;
+}
+
+async function toggleOverlay(): Promise<boolean> {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.close();
+    overlayWindow = null;
+    return false;
+  }
+  overlayWindow = await createOverlayWindow();
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+    notifyOverlayState(false);
+  });
+  notifyOverlayState(true);
+  return true;
+}
+
+function notifyOverlayState(open: boolean): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC.sessionEvent, { type: 'overlay-state', open });
+  }
 }
 
 async function bootstrap(): Promise<void> {
@@ -96,8 +172,11 @@ async function bootstrap(): Promise<void> {
   const privacy = new PrivacyController(settings, profiles, history);
   void privacy.applyRetention().catch(() => undefined);
 
+  // Broadcast session events to every window so the answer window stays in sync with the dashboard.
   const emit = (event: SessionEvent) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.sessionEvent, event);
+    for (const window of [mainWindow, overlayWindow]) {
+      if (window && !window.isDestroyed()) window.webContents.send(IPC.sessionEvent, event);
+    }
   };
   const session = new SessionController({
     getSettings: () => settings.get(),
@@ -112,12 +191,24 @@ async function bootstrap(): Promise<void> {
   hardenSession(electronSession.defaultSession, { devServerUrl });
   installDisplayMediaHandler();
   buildMenu();
-  registerIpcHandlers({ getWindow: () => mainWindow, settings, profiles, history, privacy, session, devServerUrl });
+  registerIpcHandlers({
+    getWindow: () => mainWindow,
+    settings,
+    profiles,
+    history,
+    privacy,
+    session,
+    devServerUrl,
+    toggleOverlay: () => toggleOverlay(),
+    isOverlayOpen: () => Boolean(overlayWindow && !overlayWindow.isDestroyed()),
+  });
 
   mainWindow = await createWindow(settings);
   mainWindow.on('closed', () => {
     mainWindow = null;
-    // Closing the window always ends capture.
+    // Closing the dashboard ends capture and closes the answer window.
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
+    overlayWindow = null;
     void session.stop();
   });
 

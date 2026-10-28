@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Headphones, MessageSquare, NotebookPen, Shield, Shuffle, TriangleAlert, Users } from 'lucide-react';
+import { Headphones, MessageSquare, NotebookPen, PanelsTopLeft, Shield, Shuffle, TriangleAlert, Users } from 'lucide-react';
 import { GENERAL_PRACTICE_QUESTIONS, practiceQuestionsForJob, type PracticeQuestion } from '@shared/core/practiceQuestions';
 import type { AnswerFormat, AudioSource, JobContext, SessionMode } from '@shared/types';
 import { useCopilot } from '../app/CopilotProvider';
@@ -400,7 +400,17 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
           transcriptionStatus={session.transcriptionStatus}
         />
         {session.isDemo && running && <span className="badge bg-violet-600 text-white" data-testid="demo-banner">Demo data — not a real transcript</span>}
-        <div className="ml-auto max-w-xl flex-1">
+        <button
+          type="button"
+          className={cx('btn-secondary text-xs', session.overlayOpen && 'ring-2 ring-accent-500/40')}
+          onClick={() => void unwrap(api().app.toggleOverlay()).catch((error) => notify('error', errorMessage(error)))}
+          data-testid="toggle-overlay"
+          title="Open a separate answer window you can keep on a second monitor or beside your meeting"
+        >
+          <PanelsTopLeft className="size-3.5" aria-hidden />
+          {session.overlayOpen ? 'Close answer window' : 'Answer window'}
+        </button>
+        <div className="max-w-xl flex-1">
           <ScreenShareNotice compact={s.ui.compact} meeting={isMeeting} />
         </div>
       </div>

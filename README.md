@@ -15,6 +15,10 @@ grounded in **your own confirmed resume facts** — never invented ones.
 
 ## Highlights
 
+- **Separate answer window + background mode** — pop out a compact, read-only answer window you
+  can keep on a second monitor or beside your meeting app; the dashboard keeps capturing and
+  generating answers while minimized. It is an ordinary window (no screen-capture evasion): share
+  a single application window, or your other display, so it isn't in your shared view.
 - **Team meeting mode** (for leads and anyone who wants to communicate better at work)
   - Suggested replies when a teammate asks you something: calm, respectful, decisive, ending
     with a next step. Styles: *Shorter*, *More diplomatic*, *Warmer*, *More technical*.
@@ -98,9 +102,21 @@ requirements**. Answers only use confirmed facts.
 4. Suggested replies, your communication insights and **Summarize meeting** appear on the right.
    Try **Use demo meeting** first to see it all without audio or keys.
 
-**Screen sharing in Teams:** Copilot is a normal window. Share a single window
-(**Share → Window**) or keep Copilot on a second display, and your teammates won't see it in the
-share. If you share your **entire screen**, it will be visible.
+### Keep answers private while sharing your screen
+
+Click **Answer window** on the Session page to open a small, separate window that mirrors the
+suggested answers and the capture status. Keep it on a **second monitor**, or minimize the main
+dashboard — capture, transcription and answer generation keep running in the background, and the
+answers keep flowing to the answer window.
+
+**This is not invisible to screen capture, and the app never claims to be.** The answer window is
+a normal OS window. It stays out of your shared view only because of *what you choose to share*:
+
+- In Teams, use **Share → Window** and pick the one app you want to present (slides, a browser).
+  Only that window is captured; the answer window is not.
+- Or put the answer window on a **display you are not sharing**.
+- If you **Share → Screen** (the whole desktop) with the answer window on it, it **is** visible,
+  like any other window. See [docs/PLATFORM_LIMITATIONS.md](docs/PLATFORM_LIMITATIONS.md#screen-sharing-teams-zoom-meet).
 
 ### Run a live interview session (only where permitted)
 

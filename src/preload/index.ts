@@ -65,6 +65,8 @@ const api: CopilotApi = {
     openExternal: (url) => invoke(IPC.appOpenExternal, url),
     requestMicrophone: () => invoke(IPC.appRequestMicrophone),
     openPrivacySettings: (pane) => invoke(IPC.appOpenPrivacySettings, pane),
+    toggleOverlay: () => invoke(IPC.appToggleOverlay),
+    overlayState: () => invoke(IPC.appOverlayState),
   },
 };
 

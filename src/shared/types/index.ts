@@ -128,6 +128,7 @@ export type SessionEvent =
   | { type: 'summary-start' }
   | { type: 'summary'; summary: MeetingSummary }
   | { type: 'summary-error'; message: string }
+  | { type: 'overlay-state'; open: boolean }
   | { type: 'notice'; level: 'info' | 'warning' | 'error'; message: string };
 
 export interface SessionSnapshot {

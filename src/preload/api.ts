@@ -75,5 +75,8 @@ export interface CopilotApi {
     openExternal(url: string): Promise<IpcResult<void>>;
     requestMicrophone(): Promise<IpcResult<'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'>>;
     openPrivacySettings(pane: 'microphone' | 'screen'): Promise<IpcResult<void>>;
+    /** Open or close the separate answer window. Resolves to its new open state. */
+    toggleOverlay(): Promise<IpcResult<boolean>>;
+    overlayState(): Promise<IpcResult<boolean>>;
   };
 }
