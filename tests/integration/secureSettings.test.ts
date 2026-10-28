@@ -77,6 +77,17 @@ describe('SecureSettingsService', () => {
     expect(reloaded.get().privacy.historyEnabled).toBe(true);
   });
 
+  it('only changes the fields that were sent', async () => {
+    const service = new SecureSettingsService(dir, fakeCipher);
+    await service.load();
+    await service.update({ ui: { onboardingDone: true }, transcription: { provider: 'openai-whisper', model: 'whisper-1' } });
+    await service.update({ ui: { alwaysOnTop: true } });
+    await service.update({ transcription: { baseUrl: 'http://localhost:9000/v1' } });
+    const settings = service.get();
+    expect(settings.ui).toMatchObject({ onboardingDone: true, alwaysOnTop: true });
+    expect(settings.transcription).toMatchObject({ provider: 'openai-whisper', model: 'whisper-1', baseUrl: 'http://localhost:9000/v1' });
+  });
+
   it('recovers from a corrupted settings file', async () => {
     await fs.writeFile(join(dir, 'settings.json'), '{not json');
     const service = new SecureSettingsService(dir, fakeCipher);

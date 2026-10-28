@@ -231,28 +231,38 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
           <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-400/30 dark:bg-amber-500/10" data-testid="consent-panel">
             <p className="font-semibold text-amber-900 dark:text-amber-100">Your consent is needed before data leaves this Mac</p>
             {needsTranscriptionConsent && (
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 size-4"
-                  checked={false}
-                  onChange={() => updateSettings({ privacy: { consentTranscription: true } })}
-                />
-                Stream microphone/system audio to {s.transcription.provider === 'deepgram' ? 'Deepgram' : 'my transcription provider'} for transcription.
-              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="flex-1">
+                  Microphone/system audio will be streamed to {s.transcription.provider === 'deepgram' ? 'Deepgram' : 'your transcription provider'} for
+                  transcription. Audio is not stored by this app.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => void updateSettings({ privacy: { consentTranscription: true } })}
+                  data-testid="consent-transcription"
+                >
+                  Allow
+                </button>
+              </div>
             )}
             {needsLlmConsent && (
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 size-4"
-                  checked={false}
-                  onChange={() => updateSettings({ privacy: { consentLlm: true } })}
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="flex-1">
+                  Detected questions, recent transcript lines and relevant profile facts will be sent to{' '}
+                  {s.llm.provider === 'anthropic' ? 'Anthropic' : 'your AI provider'} to generate answers.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => void updateSettings({ privacy: { consentLlm: true } })}
                   data-testid="consent-llm"
-                />
-                Send detected questions, recent transcript lines and relevant profile facts to {s.llm.provider === 'anthropic' ? 'Anthropic' : 'my AI provider'} to generate answers.
-              </label>
+                >
+                  Allow
+                </button>
+              </div>
             )}
+            <p className="text-xs text-amber-800 dark:text-amber-200">You can withdraw consent any time in Settings → Privacy.</p>
           </div>
         )}
 

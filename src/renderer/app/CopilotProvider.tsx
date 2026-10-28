@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
-import type { PlatformInfo, PublicSettings, SessionMode, SettingsUpdate } from '@shared/types';
+import type { PlatformInfo, PublicSettings, SessionMode, Settings, SettingsUpdate } from '@shared/types';
 import { AudioCaptureService } from '../audio/AudioCaptureService';
 import { initialSessionStore, sessionReducer, type SessionStore } from '../hooks/useSessionStore';
 import { api, errorMessage, unwrap } from '../lib/api';
@@ -28,6 +28,14 @@ interface CopilotContextValue {
 
 const CopilotContext = createContext<CopilotContextValue | null>(null);
 
+function mergeSettings(current: Settings, update: SettingsUpdate): Settings {
+  const next = { ...current } as Record<string, unknown>;
+  for (const [section, patch] of Object.entries(update)) {
+    if (patch) next[section] = { ...(current as unknown as Record<string, object>)[section], ...patch };
+  }
+  return next as Settings;
+}
+
 export function useCopilot(): CopilotContextValue {
   const value = useContext(CopilotContext);
   if (!value) throw new Error('useCopilot must be used inside CopilotProvider');
@@ -39,6 +47,7 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
   const [platform, setPlatform] = useState<PlatformInfo | null>(null);
   const [session, dispatch] = useReducer(sessionReducer, initialSessionStore);
   const captureRef = useRef(new AudioCaptureService());
+  const settingsVersion = useRef(0);
   const levelsAt = useRef(0);
 
   const notify = useCallback((level: 'info' | 'warning' | 'error', message: string) => {
@@ -49,10 +58,17 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
     setSettings(await unwrap(api().settings.get()));
   }, []);
 
+  /** Optimistic: the UI reflects the change immediately and reverts if validation fails. */
   const updateSettings = useCallback(
     async (update: SettingsUpdate) => {
-      await unwrap(api().settings.update(update));
-      await refreshSettings();
+      const version = ++settingsVersion.current;
+      setSettings((current) => (current ? { ...current, settings: mergeSettings(current.settings, update) } : current));
+      try {
+        await unwrap(api().settings.update(update));
+      } finally {
+        // Only the latest update re-syncs, so a slow refresh never overwrites a newer change.
+        if (version === settingsVersion.current) await refreshSettings();
+      }
     },
     [refreshSettings],
   );

@@ -161,15 +161,30 @@ export const SettingsSchema = z.object({
     .prefault({}),
 });
 
+/**
+ * Make every field optional *without* applying defaults. (`.partial()` keeps inner defaults in
+ * Zod 4, which would silently reset fields the caller did not send.)
+ */
+function patchOf<Shape extends z.ZodRawShape>(section: z.ZodObject<Shape>) {
+  const shape: Record<string, z.ZodType> = {};
+  for (const [key, field] of Object.entries(section.shape)) {
+    const inner = field instanceof z.ZodDefault ? field.unwrap() : field;
+    shape[key] = (inner as z.ZodType).optional();
+  }
+  return z.object(shape).strict();
+}
+
 /** Deep-partial update payload accepted from the renderer. */
-export const SettingsUpdateSchema = z.object({
-  llm: SettingsSchema.shape.llm.unwrap().partial().optional(),
-  transcription: SettingsSchema.shape.transcription.unwrap().partial().optional(),
-  audio: SettingsSchema.shape.audio.unwrap().partial().optional(),
-  answers: SettingsSchema.shape.answers.unwrap().partial().optional(),
-  privacy: SettingsSchema.shape.privacy.unwrap().partial().optional(),
-  ui: SettingsSchema.shape.ui.unwrap().partial().optional(),
-});
+export const SettingsUpdateSchema = z
+  .object({
+    llm: patchOf(SettingsSchema.shape.llm.unwrap()).optional(),
+    transcription: patchOf(SettingsSchema.shape.transcription.unwrap()).optional(),
+    audio: patchOf(SettingsSchema.shape.audio.unwrap()).optional(),
+    answers: patchOf(SettingsSchema.shape.answers.unwrap()).optional(),
+    privacy: patchOf(SettingsSchema.shape.privacy.unwrap()).optional(),
+    ui: patchOf(SettingsSchema.shape.ui.unwrap()).optional(),
+  })
+  .strict();
 
 export const SecretKindSchema = z.enum(['llm', 'transcription']);
 

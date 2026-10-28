@@ -20,6 +20,7 @@ export interface QuestionDetectorOptions {
 interface Pending {
   texts: string[];
   segmentIds: string[];
+  speaker?: string;
 }
 
 const SENTENCE_SPLIT = /(?<=[.?!])\s+(?=[A-Z0-9"'(])/;
@@ -30,7 +31,8 @@ const SENTENCE_SPLIT = /(?<=[.?!])\s+(?=[A-Z0-9"'(])/;
  * - Only `final` segments are buffered; `partial` segments merely postpone the decision so we
  *   don't call the language model for every partial token.
  * - Candidate speech (role === 'candidate') is ignored, so the user's own answer is not
- *   mistaken for a question.
+ *   mistaken for a question. A change of speaker ends the interviewer's turn, so the
+ *   buffered utterance is decided immediately instead of waiting for the debounce.
  * - Near-identical questions within the duplicate window are dropped.
  */
 export class QuestionDetector {
@@ -53,7 +55,14 @@ export class QuestionDetector {
 
   /** Feed every transcript update (partial and final). */
   ingest(segment: TranscriptSegment): void {
-    if (segment.role === 'candidate') return;
+    const hasPending = this.pending.texts.length > 0;
+    if (segment.role === 'candidate') {
+      if (hasPending && segment.text.trim()) this.flush();
+      return;
+    }
+    if (hasPending && segment.speaker && this.pending.speaker && segment.speaker !== this.pending.speaker && segment.text.trim()) {
+      this.flush();
+    }
     if (segment.status === 'partial') {
       // Interviewer still speaking: postpone any pending decision.
       if (this.pending.texts.length > 0) this.schedule();
@@ -63,6 +72,7 @@ export class QuestionDetector {
     if (!text) return;
     this.pending.texts.push(text);
     this.pending.segmentIds.push(segment.id);
+    this.pending.speaker = segment.speaker;
     if (wordCount(this.pending.texts.join(' ')) >= this.maxBufferWords) {
       this.flush();
     } else {

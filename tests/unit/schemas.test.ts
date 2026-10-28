@@ -16,6 +16,14 @@ describe('settings schema', () => {
     expect(SettingsUpdateSchema.safeParse({ llm: { baseUrl: 'file:///etc/passwd' } }).success).toBe(false);
   });
 
+  it('parses partial updates without filling in defaults for omitted fields', () => {
+    expect(SettingsUpdateSchema.parse({ ui: { alwaysOnTop: true } })).toEqual({ ui: { alwaysOnTop: true } });
+    expect(SettingsUpdateSchema.parse({ transcription: { baseUrl: 'https://x.example/v1' } })).toEqual({
+      transcription: { baseUrl: 'https://x.example/v1' },
+    });
+    expect(SettingsUpdateSchema.safeParse({ ui: { unknownKey: 1 } }).success).toBe(false);
+  });
+
   it('rejects unknown enum values', () => {
     expect(SettingsUpdateSchema.safeParse({ llm: { provider: 'shady' } }).success).toBe(false);
     expect(SettingsUpdateSchema.safeParse({ answers: { maxWords: 5 } }).success).toBe(false);

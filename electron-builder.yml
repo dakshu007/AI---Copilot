@@ -1,0 +1,50 @@
+appId: dev.interviewcopilot.app
+productName: Interview Copilot
+copyright: Copyright © 2026 Interview Copilot contributors
+directories:
+  output: release/${version}
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+  # PDF text extraction needs neither pdf.js's viewer nor its native canvas binding.
+  - '!node_modules/@napi-rs/**'
+  - '!node_modules/pdfjs-dist/{web,build,image_decoders,types,legacy/web,legacy/image_decoders}/**'
+  - '!node_modules/**/{*.d.ts,*.d.mts,*.d.cts,CHANGELOG.md}'
+asar: true
+npmRebuild: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Signing/notarization use your own Apple Developer ID via environment variables
+  # (CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID).
+  notarize: false
+  extendInfo:
+    NSMicrophoneUsageDescription: Interview Copilot transcribes your microphone only while you have started a session.
+    NSAudioCaptureUsageDescription: Interview Copilot captures system audio (the other meeting participants) only while you have started a session with system audio selected.
+    NSScreenCaptureUsageDescription: macOS requires screen recording permission to capture system audio. Interview Copilot discards the video and never records your screen.
+    LSMinimumSystemVersion: '12.0'
+
+dmg:
+  title: Interview Copilot ${version}
+  writeUpdateInfo: false
+
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  target: [AppImage]
+  category: Office

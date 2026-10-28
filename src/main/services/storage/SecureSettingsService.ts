@@ -61,7 +61,7 @@ export class SecureSettingsService {
   }
 
   async update(update: SettingsUpdate | unknown): Promise<Settings> {
-    const patch = SettingsUpdateSchema.parse(update);
+    const patch = SettingsUpdateSchema.parse(update) as SettingsUpdate;
     const merged = {
       ...this.settings,
       llm: { ...this.settings.llm, ...patch.llm },

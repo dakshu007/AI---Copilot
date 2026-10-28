@@ -65,6 +65,7 @@ export default defineConfig({
     plugins: [react(), tailwindcss(), contentSecurityPolicy()],
     build: {
       outDir: 'out/renderer',
+      minify: true,
       rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') },
     },
   },

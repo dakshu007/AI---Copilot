@@ -17,7 +17,6 @@ import type {
   SessionStateSchema,
   SessionSummarySchema,
   SettingsSchema,
-  SettingsUpdateSchema,
   SpeakerRoleSchema,
   TranscriptSegmentSchema,
   TranscriptionProviderIdSchema,
@@ -33,7 +32,7 @@ export type ModelAnswer = z.infer<typeof ModelAnswerSchema>;
 export type SessionState = z.infer<typeof SessionStateSchema>;
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
-export type SettingsUpdate = z.infer<typeof SettingsUpdateSchema>;
+export type SettingsUpdate = { [Section in Exclude<keyof Settings, 'version'>]?: Partial<Settings[Section]> };
 export type SecretKind = z.infer<typeof SecretKindSchema>;
 export type LlmProviderId = z.infer<typeof LlmProviderIdSchema>;
 export type TranscriptionProviderId = z.infer<typeof TranscriptionProviderIdSchema>;

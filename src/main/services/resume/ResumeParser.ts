@@ -28,7 +28,59 @@ function cleanText(text: string): string {
     .slice(0, MAX_RESUME_TEXT);
 }
 
+/**
+ * pdf.js references `DOMMatrix` when its (unused) canvas renderer module loads. Text extraction
+ * never renders, so a minimal stand-in avoids shipping a native canvas binary per architecture.
+ */
+function ensureDomMatrix(): void {
+  const scope = globalThis as unknown as { DOMMatrix?: unknown };
+  if (scope.DOMMatrix) return;
+  class MinimalDOMMatrix {
+    a = 1;
+    b = 0;
+    c = 0;
+    d = 1;
+    e = 0;
+    f = 0;
+    constructor(init?: number[]) {
+      if (Array.isArray(init) && init.length >= 6) [this.a, this.b, this.c, this.d, this.e, this.f] = init as [number, number, number, number, number, number];
+    }
+    multiplySelf(other: MinimalDOMMatrix): this {
+      const { a, b, c, d, e, f } = this;
+      this.a = a * other.a + c * other.b;
+      this.b = b * other.a + d * other.b;
+      this.c = a * other.c + c * other.d;
+      this.d = b * other.c + d * other.d;
+      this.e = a * other.e + c * other.f + e;
+      this.f = b * other.e + d * other.f + f;
+      return this;
+    }
+    preMultiplySelf(other: MinimalDOMMatrix): this {
+      const copy = new MinimalDOMMatrix([other.a, other.b, other.c, other.d, other.e, other.f]);
+      copy.multiplySelf(this);
+      [this.a, this.b, this.c, this.d, this.e, this.f] = [copy.a, copy.b, copy.c, copy.d, copy.e, copy.f];
+      return this;
+    }
+    translate(x = 0, y = 0): MinimalDOMMatrix {
+      return new MinimalDOMMatrix([this.a, this.b, this.c, this.d, this.e, this.f]).multiplySelf(new MinimalDOMMatrix([1, 0, 0, 1, x, y]));
+    }
+    scale(x = 1, y = x): MinimalDOMMatrix {
+      return new MinimalDOMMatrix([this.a, this.b, this.c, this.d, this.e, this.f]).multiplySelf(new MinimalDOMMatrix([x, 0, 0, y, 0, 0]));
+    }
+    invertSelf(): this {
+      const det = this.a * this.d - this.b * this.c || 1;
+      const { a, b, c, d, e, f } = this;
+      [this.a, this.b, this.c, this.d] = [d / det, -b / det, -c / det, a / det];
+      this.e = (c * f - d * e) / det;
+      this.f = (b * e - a * f) / det;
+      return this;
+    }
+  }
+  scope.DOMMatrix = MinimalDOMMatrix;
+}
+
 async function pdfToText(bytes: Uint8Array): Promise<string> {
+  ensureDomMatrix();
   // The legacy build runs in Node without a DOM. Imported lazily to keep startup fast.
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const task = pdfjs.getDocument({

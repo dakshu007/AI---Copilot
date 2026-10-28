@@ -169,6 +169,7 @@ export function ProviderSettings({ value, onUpdate, onSetSecret, onClearSecret, 
                 className="input"
                 defaultValue={settings.transcription.baseUrl}
                 key={settings.transcription.baseUrl}
+                data-testid="stt-base-url"
                 onBlur={(event) => onUpdate({ transcription: { baseUrl: event.target.value.trim() } })}
               />
             </label>

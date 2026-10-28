@@ -75,6 +75,16 @@ describe('QuestionDetector', () => {
     expect(questions).toHaveLength(2);
   });
 
+  it('decides immediately when the candidate starts speaking or the speaker changes', () => {
+    detector.ingest(segment('Tell me about yourself.'));
+    detector.ingest(segment('Sure', { role: 'candidate', speaker: 'You', status: 'partial' }));
+    expect(questions).toHaveLength(1);
+    detector.ingest(segment('How do you test distributed systems?', { role: 'unknown', speaker: 'Speaker 1' }));
+    detector.ingest(segment('I usually start with contracts.', { role: 'unknown', speaker: 'Speaker 2' }));
+    expect(questions).toHaveLength(2);
+    expect(questions[1]!.text).toBe('How do you test distributed systems?');
+  });
+
   it("ignores the candidate's own speech", () => {
     detector.ingest(segment('What would you like me to cover first?', { role: 'candidate', speaker: 'You' }));
     vi.advanceTimersByTime(2_000);
