@@ -1,0 +1,71 @@
+name: Build macOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, claude/loving-dijkstra-t6fuzm]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-mac:
+    name: Test and build DMG
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint, typecheck and test
+        run: npm run check
+
+      - name: Build app
+        run: npm run build
+
+      - name: Create macOS icon
+        run: |
+          mkdir -p build/icon.iconset
+          for size in 16 32 128 256 512; do
+            sips -z $size $size build/icon.png --out build/icon.iconset/icon_${size}x${size}.png >/dev/null
+            double=$((size * 2))
+            sips -z $double $double build/icon.png --out build/icon.iconset/icon_${size}x${size}@2x.png >/dev/null
+          done
+          iconutil -c icns build/icon.iconset -o build/icon.icns
+
+      # No Apple Developer certificate here, so the app is ad-hoc signed. That is enough for
+      # macOS to run it after "Open Anyway"; it is not notarized.
+      - name: Package DMG (Apple Silicon + Intel)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: >
+          npx electron-builder --mac dmg zip --arm64 --x64 --publish never
+          -c.mac.identity=-
+          -c.mac.hardenedRuntime=false
+
+      - name: Verify app signature
+        run: |
+          app=$(find release -maxdepth 3 -name "Interview Copilot.app" -path "*mac-arm64*" | head -1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ls -lh release/*/*.dmg release/*/*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Interview-Copilot-macOS
+          path: |
+            release/*/*.dmg
+            release/*/*.zip
+          if-no-files-found: error
+          retention-days: 14
