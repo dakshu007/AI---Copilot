@@ -70,10 +70,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   // Settings and secrets
   handle(IPC.settingsGet, () => deps.settings.getPublic());
   handle(IPC.settingsUpdate, async (_e, payload) => {
+    const before = deps.settings.get();
     const updated = await deps.settings.update(payload);
     deps.session.invalidateProviders();
     const window = deps.getWindow();
-    if (window && !window.isDestroyed()) window.setAlwaysOnTop(updated.ui.alwaysOnTop, 'floating');
+    if (window && !window.isDestroyed()) {
+      window.setAlwaysOnTop(updated.ui.alwaysOnTop, 'floating');
+      if (before.ui.compact !== updated.ui.compact) {
+        const [width, height] = updated.ui.compact ? [460, 760] : [1240, 820];
+        window.setSize(width, height, true);
+      }
+    }
     return updated;
   });
   handle(IPC.secretSet, async (_e, payload) => {

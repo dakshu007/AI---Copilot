@@ -1,22 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
-import { z } from 'zod';
 import { parseModelAnswer } from '@shared/core/answerParser';
-import { SYSTEM_PROMPT, buildUserPrompt } from '@shared/core/prompt';
+import { MODEL_ANSWER_JSON_SCHEMA, SYSTEM_PROMPT, buildUserPrompt } from '@shared/core/prompt';
 import { ProviderError, errorFromStatus, redactSecrets } from '@shared/core/retry';
 import type { ConnectionTestResult, ModelAnswer } from '@shared/types';
 import type { AnswerProvider, AnswerRequest } from './types';
-
-/** Schema sent to the API: no length constraints, every key required. */
-const ApiAnswerSchema = z.object({
-  answer: z.string(),
-  evidenceUsed: z.array(z.string()),
-  unsupportedClaims: z.array(z.string()),
-  insufficientResumeEvidence: z.boolean(),
-  generalExplanation: z.string().nullable(),
-  followUpQuestion: z.string().nullable(),
-  whyThisAnswer: z.string(),
-});
 
 /** Models that accept `output_config.effort`. */
 const EFFORT_MODELS = /^claude-(fable|mythos|opus|sonnet|haiku)-5|^claude-opus-4-[5-8]|^claude-sonnet-4-6/;
@@ -48,7 +35,7 @@ export class AnthropicProvider implements AnswerProvider {
     const model = this.options.model;
     const useFallbacks = FALLBACK_MODELS.test(model);
     try {
-      const response = await this.client.beta.messages.parse(
+      const response = await this.client.beta.messages.create(
         {
           model,
           max_tokens: 8_000,
@@ -67,7 +54,8 @@ export class AnthropicProvider implements AnswerProvider {
           ],
           output_config: {
             ...(EFFORT_MODELS.test(model) ? { effort: this.options.effort } : {}),
-            format: betaZodOutputFormat(ApiAnswerSchema),
+            // Structured outputs: the response text is constrained to this JSON schema.
+            format: { type: 'json_schema', schema: MODEL_ANSWER_JSON_SCHEMA as unknown as Record<string, unknown> },
           },
           ...(useFallbacks ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
         },
@@ -83,11 +71,7 @@ export class AnthropicProvider implements AnswerProvider {
           retryable: true,
         });
       }
-      if (response.parsed_output) {
-        const parsed = parseModelAnswer(response.parsed_output);
-        if (parsed.ok) return parsed.value;
-      }
-      // Defensive fallback: parse any text the model returned.
+      // Validate before display: never trust the shape of model output.
       const text = response.content
         .map((block) => (block.type === 'text' ? block.text : ''))
         .join('');

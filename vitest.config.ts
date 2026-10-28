@@ -12,7 +12,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts', 'tests/component/**/*.test.tsx'],
+    include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts', 'tests/component/**/*.test.{ts,tsx}'],
     environment: 'node',
     setupFiles: ['tests/setup.ts'],
     restoreMocks: true,

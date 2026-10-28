@@ -104,6 +104,8 @@ export class DeepgramProvider implements TranscriptionProvider {
 class DeepgramSession implements TranscriptionSession {
   private socket: WebSocketLike | null = null;
   private closedByUser = false;
+  private closed = false;
+  private finishTimer: ReturnType<typeof setTimeout> | null = null;
   private paused = false;
   private reconnectAttempts = 0;
   private keepAlive: ReturnType<typeof setInterval> | null = null;
@@ -210,7 +212,7 @@ class DeepgramSession implements TranscriptionSession {
         resolve();
         return;
       }
-      setTimeout(() => {
+      this.finishTimer = setTimeout(() => {
         this.close();
         resolve();
       }, 2_500);
@@ -219,6 +221,10 @@ class DeepgramSession implements TranscriptionSession {
 
   close(): void {
     this.closedByUser = true;
+    if (this.closed) return;
+    this.closed = true;
+    if (this.finishTimer) clearTimeout(this.finishTimer);
+    this.finishTimer = null;
     this.stopKeepAlive();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;

@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { ChevronDown, FileText, Plus, ShieldCheck, Trash, TriangleAlert, Upload, X } from 'lucide-react';
 import type { CandidateProfile, Experience, Project, ResumeImportResult } from '@shared/types';
 import { cx } from '../lib/format';
@@ -36,12 +36,18 @@ export function ResumeProfileEditor({ profile, onImportFile, onImportBytes, onEx
   const [busy, setBusy] = useState(false);
   const [pasted, setPasted] = useState('');
   const [showRaw, setShowRaw] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirtyState] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const dirtyRef = useRef(false);
+  const setDirty = (value: boolean) => {
+    dirtyRef.current = value;
+    setDirtyState(value);
+  };
 
+  // Follow the saved profile, but never overwrite unsaved edits.
   useEffect(() => {
-    if (!dirty) setDraft(profile ?? EMPTY_PROFILE);
-  }, [profile, dirty]);
+    if (!dirtyRef.current) setDraft(profile ?? EMPTY_PROFILE);
+  }, [profile]);
 
   const update = (patch: Partial<CandidateProfile>) => {
     setDraft((current) => ({ ...current, ...patch, verified: false }));
@@ -54,7 +60,12 @@ export function ResumeProfileEditor({ profile, onImportFile, onImportBytes, onEx
     try {
       const result = await task();
       if (result) {
-        setDraft({ ...result.profile, additionalFacts: draft.additionalFacts });
+        setDraft({
+          ...result.profile,
+          resumeText: result.profile.resumeText || result.text,
+          // Keep facts the user typed by hand; they are not part of the resume.
+          additionalFacts: draft.additionalFacts,
+        });
         setWarnings(result.warnings);
         setDirty(true);
         setShowRaw(true);
