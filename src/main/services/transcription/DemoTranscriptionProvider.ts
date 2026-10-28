@@ -101,6 +101,7 @@ class DemoSession implements TranscriptionSession {
       text: words.slice(0, this.wordIndex).join(' '),
       startMs: this.elapsedMs,
       speaker: line.speaker,
+      // "You" is the user; every other named speaker is another participant.
       role: line.speaker === 'You' ? 'candidate' : 'interviewer',
       status: done ? 'final' : 'partial',
     });

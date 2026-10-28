@@ -181,6 +181,51 @@ describe('OpenAICompatibleProvider', () => {
   });
 });
 
+describe('meeting summaries', () => {
+  const SUMMARY = {
+    summary: 'The team agreed to ship on Friday.',
+    decisions: ['Ship on Friday'],
+    actionItems: [{ task: 'Send release notes', owner: 'Alex', due: 'Thursday' }],
+    openQuestions: [],
+  };
+  const summaryRequest = (signal = new AbortController().signal) => ({
+    transcript: 'Priya: Can we ship Friday?\nYou: Yes, we will ship Friday.',
+    segments: [],
+    meetingContext: 'Release checklist',
+    signal,
+  });
+
+  it('Anthropic summarises with the summary schema', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(json(anthropicMessage(JSON.stringify(SUMMARY))));
+    const client = new Anthropic({ apiKey: KEY, fetch: fetchImpl, maxRetries: 0 });
+    const provider = new AnthropicProvider({ apiKey: KEY, model: 'claude-opus-5-5', effort: 'low', timeoutMs: 10_000, client });
+    expect(await provider.summarize(summaryRequest())).toEqual(SUMMARY);
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1].body);
+    expect(body.system).toContain('summarise work meetings');
+    expect(body.output_config.format.schema.required).toEqual(['summary', 'decisions', 'actionItems', 'openQuestions']);
+    expect(body.messages[0].content).toContain('MEETING NOTES / AGENDA:\nRelease checklist');
+  });
+
+  it('Anthropic uses the team-lead prompt in meeting mode', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(json(anthropicMessage(JSON.stringify(ANSWER))));
+    const client = new Anthropic({ apiKey: KEY, fetch: fetchImpl, maxRetries: 0 });
+    const provider = new AnthropicProvider({ apiKey: KEY, model: 'claude-opus-5-5', effort: 'low', timeoutMs: 10_000, client });
+    await provider.generate({ ...request(), mode: 'meeting', format: 'diplomatic' });
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1].body);
+    expect(body.system).toContain('team lead');
+    expect(body.messages[0].content).toContain('WHAT THE TEAMMATE SAID');
+  });
+
+  it('OpenAI-compatible summarises and rejects malformed summaries', async () => {
+    resetOpenAIModeCache();
+    const completion = (content: unknown) => json({ choices: [{ message: { content } }] });
+    const ok = new OpenAICompatibleProvider({ apiKey: KEY, baseUrl: 'https://api.example.com/v1', model: 'm', timeoutMs: 5_000, fetchImpl: vi.fn().mockResolvedValue(completion(JSON.stringify(SUMMARY))) });
+    expect(await ok.summarize(summaryRequest())).toEqual(SUMMARY);
+    const bad = new OpenAICompatibleProvider({ apiKey: KEY, baseUrl: 'https://api.example.com/v1', model: 'm', timeoutMs: 5_000, fetchImpl: vi.fn().mockResolvedValue(completion('{"summary": ""}')) });
+    await expect(bad.summarize(summaryRequest())).rejects.toMatchObject({ options: { code: 'invalid-response' } });
+  });
+});
+
 describe('DemoAnswerProvider', () => {
   it('answers offline from profile facts and can be cancelled', async () => {
     const provider = new DemoAnswerProvider(5);

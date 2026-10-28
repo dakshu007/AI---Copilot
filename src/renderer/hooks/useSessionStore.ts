@@ -2,6 +2,7 @@ import type {
   AnswerFormat,
   AnswerSuggestion,
   DetectedQuestion,
+  MeetingSummary,
   SessionEvent,
   SessionMode,
   SessionState,
@@ -29,6 +30,9 @@ export interface SessionStore {
   transcriptionStatus: TranscriptionStatus;
   notices: Notice[];
   levels: number[];
+  summary?: MeetingSummary;
+  summarizing: boolean;
+  summaryError?: string;
 }
 
 export const initialSessionStore: SessionStore = {
@@ -44,6 +48,7 @@ export const initialSessionStore: SessionStore = {
   transcriptionStatus: 'idle',
   notices: [],
   levels: [],
+  summarizing: false,
 };
 
 export type SessionAction =
@@ -98,7 +103,17 @@ function applyEvent(store: SessionStore, event: SessionEvent): SessionStore {
     case 'state': {
       const isNewSession = event.sessionId !== null && event.sessionId !== store.sessionId && event.state === 'listening';
       const base = isNewSession
-        ? { ...store, segments: [], questions: [], answers: {}, generating: {}, answerErrors: {} }
+        ? {
+            ...store,
+            segments: [],
+            questions: [],
+            answers: {},
+            generating: {},
+            answerErrors: {},
+            summary: undefined,
+            summarizing: false,
+            summaryError: undefined,
+          }
         : store;
       return {
         ...base,
@@ -149,6 +164,12 @@ function applyEvent(store: SessionStore, event: SessionEvent): SessionStore {
     }
     case 'notice':
       return addNotice(store, event.level, event.message);
+    case 'summary-start':
+      return { ...store, summarizing: true, summaryError: undefined };
+    case 'summary':
+      return { ...store, summarizing: false, summary: event.summary, summaryError: undefined };
+    case 'summary-error':
+      return { ...store, summarizing: false, summaryError: event.message };
     default:
       return store;
   }

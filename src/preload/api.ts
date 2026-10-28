@@ -56,6 +56,8 @@ export interface CopilotApi {
     generate(questionId: string, format?: AnswerFormat): Promise<IpcResult<void>>;
     cancel(questionId: string): Promise<IpcResult<void>>;
     feedback(questionId: string, createdAt: number, feedback: 'useful' | 'not-useful'): Promise<IpcResult<void>>;
+    /** Summarise the current or just-finished meeting; the result arrives as a session event. */
+    summarize(): Promise<IpcResult<void>>;
     onEvent(listener: (event: SessionEvent) => void): () => void;
   };
   history: {

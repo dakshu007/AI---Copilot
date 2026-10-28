@@ -144,6 +144,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     void deps.session.generateAnswer(questionId, format);
   });
   handle(IPC.sessionCancel, (_e, payload) => deps.session.cancelAnswer(z.string().max(128).parse(payload)));
+  handle(IPC.sessionSummarize, () => {
+    void deps.session.summarize();
+  });
   handle(IPC.sessionFeedback, (_e, payload) => {
     const { questionId, createdAt, feedback } = FeedbackSchema.parse(payload);
     deps.session.setFeedback(questionId, createdAt, feedback);

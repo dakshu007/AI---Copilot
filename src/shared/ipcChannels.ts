@@ -27,6 +27,7 @@ export const IPC = {
   sessionGenerate: 'session:generate',
   sessionCancel: 'session:cancel',
   sessionFeedback: 'session:feedback',
+  sessionSummarize: 'session:summarize',
   sessionEvent: 'session:event',
   historyList: 'history:list',
   historyGet: 'history:get',

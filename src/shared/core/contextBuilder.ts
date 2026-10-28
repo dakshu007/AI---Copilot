@@ -1,10 +1,10 @@
-import type { CandidateProfile, JobContext } from '../types';
+import type { CandidateProfile, JobContext, SessionMode } from '../types';
 import { contentTokens, overlapScore, truncate } from './text';
 
 export interface EvidenceItem {
   /** Stable reference such as "E3", cited by the model in `evidenceUsed`. */
   ref: string;
-  kind: 'summary' | 'skill' | 'experience' | 'project' | 'achievement' | 'education' | 'fact';
+  kind: 'summary' | 'skill' | 'experience' | 'project' | 'achievement' | 'education' | 'fact' | 'note';
   text: string;
 }
 
@@ -24,6 +24,9 @@ export interface BuildContextInput {
   question: string;
   recentTranscript?: string;
   maxChars?: number;
+  mode?: SessionMode;
+  /** Agenda / project notes typed by the user for a team meeting. */
+  meetingContext?: string;
 }
 
 function collectEvidence(profile: CandidateProfile): Omit<EvidenceItem, 'ref'>[] {
@@ -64,14 +67,25 @@ function collectEvidence(profile: CandidateProfile): Omit<EvidenceItem, 'ref'>[]
  */
 export function buildContext(input: BuildContextInput): BuiltContext {
   const maxChars = input.maxChars ?? 3_600;
+  const meeting = input.mode === 'meeting';
   const profile = input.profile;
-  const job = input.job;
+  // Job descriptions describe interview targets; they are irrelevant in team meetings.
+  const job = meeting ? null : input.job;
+  // Meeting notes become citable evidence, one item per line or sentence.
+  const noteItems: Omit<EvidenceItem, 'ref'>[] = meeting
+    ? (input.meetingContext ?? '')
+        .split(/\n+|(?<=[.!?])\s+/)
+        .map((line) => line.replace(/^\s*[-*•]\s*/, '').trim())
+        .filter((line) => line.length > 3)
+        .slice(0, 60)
+        .map((text) => ({ kind: 'note' as const, text: `Meeting note: ${text}` }))
+    : [];
   const questionTokens = contentTokens(input.question);
   const jobTokens = job ? [...job.skills.map((s) => s.toLowerCase()), ...contentTokens(job.title)] : [];
 
   const evidence: EvidenceItem[] = [];
   let used = 0;
-  const hasProfile = Boolean(
+  const profileHasFacts = Boolean(
     profile &&
       (profile.skills.length > 0 ||
         profile.experience.length > 0 ||
@@ -80,13 +94,14 @@ export function buildContext(input: BuildContextInput): BuiltContext {
         profile.additionalFacts.length > 0 ||
         profile.summary.trim()),
   );
+  const hasProfile = profileHasFacts || noteItems.length > 0;
 
-  if (profile && hasProfile) {
-    const scored = collectEvidence(profile)
+  if (hasProfile) {
+    const scored = [...noteItems, ...(profile && profileHasFacts ? collectEvidence(profile) : [])]
       .map((item, order) => {
         const relevance = overlapScore(questionTokens, item.text);
         const jobRelevance = jobTokens.length ? overlapScore(jobTokens, item.text) * 0.35 : 0;
-        const kindBoost = item.kind === 'achievement' || item.kind === 'experience' ? 0.05 : 0;
+        const kindBoost = item.kind === 'note' ? 0.1 : item.kind === 'achievement' || item.kind === 'experience' ? 0.05 : 0;
         return { item, order, score: relevance + jobRelevance + kindBoost };
       })
       .sort((a, b) => b.score - a.score || a.order - b.order);
@@ -100,7 +115,7 @@ export function buildContext(input: BuildContextInput): BuiltContext {
     }
 
     // Skills are cheap and highly useful: add a single line with relevant skills first.
-    if (profile.skills.length > 0) {
+    if (profile && profile.skills.length > 0) {
       const skills = [...profile.skills].sort(
         (a, b) => overlapScore(questionTokens, b) + overlapScore(jobTokens, b) - (overlapScore(questionTokens, a) + overlapScore(jobTokens, a)),
       );
@@ -126,16 +141,26 @@ export function buildContext(input: BuildContextInput): BuiltContext {
 
   const candidateHeadline = profile ? [profile.name, profile.headline].filter(Boolean).join(' — ') : '';
 
-  const sections = [
-    `CANDIDATE: ${candidateHeadline || '(not provided)'}`,
-    hasProfile
-      ? `VERIFIED CANDIDATE FACTS (cite by ref):\n${evidence.map((e) => `[${e.ref}] ${e.text}`).join('\n')}`
-      : 'VERIFIED CANDIDATE FACTS: none provided. Do not claim any personal experience.',
-    `TARGET ROLE:\n${jobSummary || '(no job description provided)'}`,
-  ];
+  const factsLines = evidence.map((e) => `[${e.ref}] ${e.text}`).join('\n');
+  const sections = meeting
+    ? [
+        `YOU (THE LEAD): ${candidateHeadline || '(not provided)'}`,
+        hasProfile
+          ? `VERIFIED WORK FACTS (cite by ref):\n${factsLines}`
+          : 'VERIFIED WORK FACTS: none provided. Do not state facts about projects, numbers or commitments.',
+        noteItems.length === 0 ? 'MEETING NOTES / AGENDA: none provided.' : '',
+      ]
+    : [
+        `CANDIDATE: ${candidateHeadline || '(not provided)'}`,
+        hasProfile
+          ? `VERIFIED CANDIDATE FACTS (cite by ref):\n${factsLines}`
+          : 'VERIFIED CANDIDATE FACTS: none provided. Do not claim any personal experience.',
+        `TARGET ROLE:\n${jobSummary || '(no job description provided)'}`,
+      ];
   if (input.recentTranscript?.trim()) {
+    // (sections may contain an empty placeholder; filtered when joining)
     sections.push(`RECENT CONVERSATION (most recent last):\n${truncate(input.recentTranscript.trim(), 1_200)}`);
   }
 
-  return { evidence, jobSummary, candidateHeadline, hasProfile, text: sections.join('\n\n') };
+  return { evidence, jobSummary, candidateHeadline, hasProfile, text: sections.filter(Boolean).join('\n\n') };
 }

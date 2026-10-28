@@ -5,6 +5,7 @@ export const FORMAT_LABELS: Record<AnswerFormat, string> = {
   conversational: 'Conversational',
   technical: 'Technical',
   star: 'STAR',
+  diplomatic: 'Diplomatic',
 };
 
 export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {

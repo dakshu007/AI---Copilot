@@ -94,6 +94,38 @@ export function SessionHistory(props: SessionHistoryProps) {
                 <Trash className="size-3.5" aria-hidden /> Delete
               </button>
             </header>
+            {selected.summary && (
+              <div className="space-y-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-white/10" data-testid="history-summary">
+                <h3 className="label">Meeting summary</h3>
+                <p>{selected.summary.summary}</p>
+                {selected.summary.decisions.length > 0 && (
+                  <ul className="list-disc pl-5">
+                    {selected.summary.decisions.map((decision) => (
+                      <li key={decision}>Decision: {decision}</li>
+                    ))}
+                  </ul>
+                )}
+                {selected.summary.actionItems.length > 0 && (
+                  <ul className="space-y-0.5">
+                    {selected.summary.actionItems.map((item) => (
+                      <li key={item.task}>
+                        ☐ {item.task}
+                        {item.owner ? ` — ${item.owner}` : ''}
+                        {item.due ? ` (due ${item.due})` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {selected.insights?.hasSpeakerSeparation && (
+              <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="history-insights">
+                You spoke {Math.round(selected.insights.yourShare * 100)}% of the time
+                {selected.insights.wordsPerMinute ? ` at ${selected.insights.wordsPerMinute} wpm` : ''}, with {selected.insights.fillerCount} filler
+                word{selected.insights.fillerCount === 1 ? '' : 's'} and {selected.insights.questionsAsked} question
+                {selected.insights.questionsAsked === 1 ? '' : 's'} asked.
+              </p>
+            )}
             <div>
               <h3 className="label">Questions &amp; answers</h3>
               {selected.questions.length === 0 && <p className="text-sm text-slate-500">No questions.</p>}

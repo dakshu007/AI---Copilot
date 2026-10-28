@@ -1,7 +1,11 @@
 import type { z } from 'zod';
 import type {
   AnswerFormatSchema,
+  ActionItemSchema,
   AnswerSuggestionSchema,
+  CommunicationInsightsSchema,
+  MeetingSummarySchema,
+  ModelSummarySchema,
   AudioSourceSchema,
   CandidateProfileSchema,
   DetectedQuestionSchema,
@@ -42,6 +46,10 @@ export type Experience = z.infer<typeof ExperienceSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type JobContext = z.infer<typeof JobContextSchema>;
 export type SessionRecord = z.infer<typeof SessionRecordSchema>;
+export type ActionItem = z.infer<typeof ActionItemSchema>;
+export type ModelSummary = z.infer<typeof ModelSummarySchema>;
+export type MeetingSummary = z.infer<typeof MeetingSummarySchema>;
+export type CommunicationInsights = z.infer<typeof CommunicationInsightsSchema>;
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
 export type TranscriptionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'closed';
@@ -95,7 +103,10 @@ export interface StartSessionRequest {
   /** Optional speaker label for each channel, e.g. ['You', 'Interviewer']. */
   channelLabels?: string[];
   demo: boolean;
+  /** assist: the organizer permits AI help; meeting: participants know it is transcribed. */
   permittedAcknowledged: boolean;
+  /** Optional agenda / project notes for team meetings (kept in memory for the session). */
+  meetingContext?: string;
 }
 
 export type SessionEvent =
@@ -114,6 +125,9 @@ export type SessionEvent =
   | { type: 'answer-error'; questionId: string; message: string; retryable: boolean }
   | { type: 'answer-cancelled'; questionId: string }
   | { type: 'transcription-status'; status: TranscriptionStatus; message?: string }
+  | { type: 'summary-start' }
+  | { type: 'summary'; summary: MeetingSummary }
+  | { type: 'summary-error'; message: string }
   | { type: 'notice'; level: 'info' | 'warning' | 'error'; message: string };
 
 export interface SessionSnapshot {
@@ -124,6 +138,7 @@ export interface SessionSnapshot {
   segments: TranscriptSegment[];
   questions: DetectedQuestion[];
   answers: AnswerSuggestion[];
+  summary?: MeetingSummary;
   message?: string;
 }
 

@@ -1,5 +1,5 @@
 import { LoaderCircle, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
-import type { AnswerFormat, AnswerSuggestion, DetectedQuestion } from '@shared/types';
+import type { AnswerFormat, AnswerSuggestion, DetectedQuestion, SessionMode } from '@shared/types';
 import { FORMAT_LABELS, QUESTION_TYPE_LABELS, cx } from '../lib/format';
 import { SuggestedAnswer } from './SuggestedAnswer';
 
@@ -9,6 +9,7 @@ export interface QuestionCardProps {
   generating?: AnswerFormat;
   error?: { message: string; retryable: boolean };
   highlighted?: boolean;
+  mode?: SessionMode;
   onGenerate(format?: AnswerFormat): void;
   onCancel(): void;
   onFeedback(createdAt: number, feedback: 'useful' | 'not-useful'): void;
@@ -21,8 +22,17 @@ const VARIANTS: Array<{ format: AnswerFormat; label: string }> = [
   { format: 'conversational', label: 'Conversational' },
 ];
 
-export function QuestionCard({ question, answers, generating, error, highlighted, onGenerate, onCancel, onFeedback }: QuestionCardProps) {
+const MEETING_VARIANTS: Array<{ format: AnswerFormat; label: string }> = [
+  { format: 'concise', label: 'Shorter' },
+  { format: 'diplomatic', label: 'More diplomatic' },
+  { format: 'conversational', label: 'Warmer' },
+  { format: 'technical', label: 'More technical' },
+];
+
+export function QuestionCard({ question, answers, generating, error, highlighted, mode, onGenerate, onCancel, onFeedback }: QuestionCardProps) {
   const latest = answers[answers.length - 1];
+  const meeting = mode === 'meeting';
+  const variants = meeting ? MEETING_VARIANTS : VARIANTS;
   return (
     <article
       className={cx('card space-y-3 p-4', highlighted && 'ring-2 ring-accent-500/40')}
@@ -47,7 +57,7 @@ export function QuestionCard({ question, answers, generating, error, highlighted
       {generating && (
         <div className="flex items-center gap-2 rounded-lg bg-accent-50 px-3 py-2 text-sm text-accent-700 dark:bg-accent-500/10 dark:text-accent-200" role="status" data-testid="generating">
           <LoaderCircle className="size-4 animate-spin" aria-hidden />
-          Generating {FORMAT_LABELS[generating].toLowerCase()} answer…
+          Generating {FORMAT_LABELS[generating].toLowerCase()} {meeting ? 'reply' : 'answer'}…
           <button type="button" className="btn-ghost ml-auto px-2 py-0.5 text-xs" onClick={onCancel} data-testid="cancel-answer">
             <X className="size-3.5" aria-hidden /> Cancel
           </button>
@@ -76,13 +86,13 @@ export function QuestionCard({ question, answers, generating, error, highlighted
 
       {!latest && !generating && !error && (
         <button type="button" className="btn-primary" onClick={() => onGenerate()} data-testid="generate-answer">
-          <Sparkles className="size-4" aria-hidden /> Suggest an answer
+          <Sparkles className="size-4" aria-hidden /> {meeting ? 'Suggest a reply' : 'Suggest an answer'}
         </button>
       )}
 
       {(latest || error) && (
         <div className="flex flex-wrap gap-1.5 border-t border-slate-100 pt-3 dark:border-white/5" role="group" aria-label="Regenerate answer">
-          {VARIANTS.map((variant) => (
+          {variants.map((variant) => (
             <button
               key={variant.format}
               type="button"

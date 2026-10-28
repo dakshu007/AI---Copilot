@@ -10,6 +10,7 @@ export const StartSessionSchema = z.object({
   channelLabels: z.array(z.string().max(32)).max(2).optional(),
   demo: z.boolean(),
   permittedAcknowledged: z.boolean(),
+  meetingContext: z.string().max(5_000).optional(),
 });
 
 export const SecretSetSchema = z.object({ kind: SecretKindSchema, value: z.string().max(1_024) });

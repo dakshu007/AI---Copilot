@@ -1,8 +1,15 @@
-import { parseModelAnswer } from '@shared/core/answerParser';
-import { MODEL_ANSWER_JSON_SCHEMA, SYSTEM_PROMPT, buildUserPrompt } from '@shared/core/prompt';
+import { parseModelAnswer, parseModelSummary } from '@shared/core/answerParser';
+import {
+  MODEL_ANSWER_JSON_SCHEMA,
+  MODEL_SUMMARY_JSON_SCHEMA,
+  SUMMARY_SYSTEM_PROMPT,
+  buildSummaryPrompt,
+  buildUserPrompt,
+  systemPromptFor,
+} from '@shared/core/prompt';
 import { ProviderError, errorFromStatus, isAbortError, redactSecrets } from '@shared/core/retry';
-import type { ConnectionTestResult, ModelAnswer } from '@shared/types';
-import type { AnswerProvider, AnswerRequest } from './types';
+import type { ConnectionTestResult, ModelAnswer, ModelSummary, Result } from '@shared/types';
+import type { AnswerProvider, AnswerRequest, SummaryRequest } from './types';
 
 export interface OpenAICompatibleOptions {
   apiKey: string;
@@ -16,6 +23,15 @@ type ResponseMode = 'json_schema' | 'json_object' | 'none';
 
 /** Remember which structured-output mode each endpoint+model supports. */
 const supportedMode = new Map<string, ResponseMode>();
+
+interface StructuredCall<T> {
+  system: string;
+  user: string;
+  schemaName: string;
+  schema: object;
+  parse: (raw: unknown) => Result<T>;
+  signal: AbortSignal;
+}
 
 /**
  * Chat Completions-compatible provider (OpenAI, Azure OpenAI-compatible gateways, Groq,
@@ -35,15 +51,44 @@ export class OpenAICompatibleProvider implements AnswerProvider {
     return this.options.baseUrl.replace(/\/+$/, '');
   }
 
-  async generate(request: AnswerRequest): Promise<ModelAnswer> {
+  generate(request: AnswerRequest): Promise<ModelAnswer> {
+    return this.structured({
+      system: systemPromptFor(request.mode),
+      user: buildUserPrompt({
+        question: request.question.text,
+        questionType: request.question.type,
+        format: request.format,
+        maxWords: request.maxWords,
+        context: request.context,
+        mode: request.mode,
+      }),
+      schemaName: 'interview_answer',
+      schema: MODEL_ANSWER_JSON_SCHEMA,
+      parse: parseModelAnswer,
+      signal: request.signal,
+    });
+  }
+
+  summarize(request: SummaryRequest): Promise<ModelSummary> {
+    return this.structured({
+      system: SUMMARY_SYSTEM_PROMPT,
+      user: buildSummaryPrompt({ transcript: request.transcript, meetingContext: request.meetingContext }),
+      schemaName: 'meeting_summary',
+      schema: MODEL_SUMMARY_JSON_SCHEMA,
+      parse: parseModelSummary,
+      signal: request.signal,
+    });
+  }
+
+  private async structured<T>(call: StructuredCall<T>): Promise<T> {
     const key = `${this.endpoint}|${this.options.model}`;
     const modes: ResponseMode[] = ['json_schema', 'json_object', 'none'];
     let mode = supportedMode.get(key) ?? 'json_schema';
     for (;;) {
       try {
-        const answer = await this.call(request, mode);
+        const result = await this.call(call, mode);
         supportedMode.set(key, mode);
-        return answer;
+        return result;
       } catch (error) {
         const next = modes[modes.indexOf(mode) + 1];
         if (error instanceof ProviderError && error.options.status === 400 && next) {
@@ -55,29 +100,17 @@ export class OpenAICompatibleProvider implements AnswerProvider {
     }
   }
 
-  private async call(request: AnswerRequest, mode: ResponseMode): Promise<ModelAnswer> {
+  private async call<T>(call: StructuredCall<T>, mode: ResponseMode): Promise<T> {
     const fetchImpl = this.options.fetchImpl ?? fetch;
     const body: Record<string, unknown> = {
       model: this.options.model,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: buildUserPrompt({
-            question: request.question.text,
-            questionType: request.question.type,
-            format: request.format,
-            maxWords: request.maxWords,
-            context: request.context,
-          }),
-        },
+        { role: 'system', content: call.system },
+        { role: 'user', content: call.user },
       ],
     };
     if (mode === 'json_schema') {
-      body.response_format = {
-        type: 'json_schema',
-        json_schema: { name: 'interview_answer', strict: true, schema: MODEL_ANSWER_JSON_SCHEMA },
-      };
+      body.response_format = { type: 'json_schema', json_schema: { name: call.schemaName, strict: true, schema: call.schema } };
     } else if (mode === 'json_object') {
       body.response_format = { type: 'json_object' };
     }
@@ -88,10 +121,10 @@ export class OpenAICompatibleProvider implements AnswerProvider {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.options.apiKey}` },
         body: JSON.stringify(body),
-        signal: AbortSignal.any([request.signal, AbortSignal.timeout(this.options.timeoutMs)]),
+        signal: AbortSignal.any([call.signal, AbortSignal.timeout(this.options.timeoutMs)]),
       });
     } catch (error) {
-      if (request.signal.aborted) throw new ProviderError('Cancelled', { code: 'cancelled' });
+      if (call.signal.aborted) throw new ProviderError('Cancelled', { code: 'cancelled' });
       if (isAbortError(error) || (error as Error)?.name === 'TimeoutError') {
         throw new ProviderError('The AI provider took too long to respond.', { code: 'timeout', retryable: true });
       }
@@ -109,13 +142,13 @@ export class OpenAICompatibleProvider implements AnswerProvider {
     } | null;
     const choice = payload?.choices?.[0];
     if (typeof choice?.message?.refusal === 'string' && choice.message.refusal) {
-      throw new ProviderError('The AI provider declined to answer this question.', { code: 'refusal' });
+      throw new ProviderError('The AI provider declined this request.', { code: 'refusal' });
     }
     const content = choice?.message?.content;
     if (typeof content !== 'string') {
       throw new ProviderError('The AI provider returned an empty response.', { code: 'invalid-response', retryable: true });
     }
-    const parsed = parseModelAnswer(content);
+    const parsed = call.parse(content);
     if (!parsed.ok) throw new ProviderError(parsed.error, { code: 'invalid-response', retryable: true });
     return parsed.value;
   }

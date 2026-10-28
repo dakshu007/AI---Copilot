@@ -1,5 +1,6 @@
 export interface DemoLine {
-  speaker: 'Interviewer' | 'You';
+  /** "You" is the user; any other name is another participant. */
+  speaker: string;
   text: string;
   /** Delay before this line starts, in ms (scaled by the demo speed). */
   delayMs: number;
@@ -19,4 +20,25 @@ export const DEMO_SCRIPT: DemoLine[] = [
   { speaker: 'Interviewer', text: 'Interesting. How would you design a rate limiter for a public API?', delayMs: 3_500 },
   { speaker: 'You', text: 'I would start by clarifying the limits and the scale.', delayMs: 7_000 },
   { speaker: 'Interviewer', text: 'Thanks. Last one: why are you interested in this role?', delayMs: 3_000 },
+];
+
+/** Scripted team meeting for the demo in Team meeting mode. */
+export const DEMO_MEETING_SCRIPT: DemoLine[] = [
+  {
+    speaker: 'Priya',
+    text: 'Morning everyone. Quick update: the checkout API migration is about eighty percent done, but we are blocked on the database credentials.',
+    delayMs: 600,
+  },
+  { speaker: 'You', text: "Thanks Priya. I'll chase the platform team for the credentials today.", delayMs: 2_500 },
+  { speaker: 'Alex', text: 'Can we push the release to next Friday? QA needs two more days for regression testing.', delayMs: 2_500 },
+  { speaker: 'You', text: "Um, I think that's, you know, probably fine, but let me check with product first.", delayMs: 6_000 },
+  { speaker: 'Priya', text: 'Also, how should we handle the on-call rotation while Sam is on leave?', delayMs: 3_000 },
+  { speaker: 'You', text: "Let's go with a two-person rotation for the next two weeks. Alex and I will cover it.", delayMs: 6_000 },
+  { speaker: 'Alex', text: "What's the priority between the reporting dashboard and the performance fixes?", delayMs: 3_000 },
+  {
+    speaker: 'You',
+    text: 'Basically, performance first. We agreed last week that customers are feeling the latency, so the dashboard moves to the next sprint.',
+    delayMs: 6_000,
+  },
+  { speaker: 'Priya', text: 'Sounds good. Could you send the updated plan to the team by end of day?', delayMs: 3_000 },
 ];

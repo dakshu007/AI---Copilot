@@ -11,12 +11,23 @@ grounded in **your own confirmed resume facts** — never invented ones.
 | --- | --- |
 | ![Session — dark](docs/screenshots/session-dark.png) | ![Profile](docs/screenshots/profile.png) |
 
+![Team meeting mode](docs/screenshots/team-meeting.png)
+
 ## Highlights
 
-- **Two clearly labelled modes**
-  - **Practice mode** — mock questions (general + tailored to your job description), typed
+- **Team meeting mode** (for leads and anyone who wants to communicate better at work)
+  - Suggested replies when a teammate asks you something: calm, respectful, decisive, ending
+    with a next step. Styles: *Shorter*, *More diplomatic*, *Warmer*, *More technical*.
+  - Replies only state facts from your **meeting notes / agenda** and confirmed profile; when
+    the notes don't cover something you get a good holding response instead of a guess.
+  - **Private communication coach**: your talk-time share, speaking pace, filler words
+    ("um", "you know", "basically"…), questions asked, with gentle tips. Computed on your Mac.
+  - **One-click meeting summary**: key points, decisions, action items (owner + due date when
+    stated) and open questions, copyable as Markdown and saved in history.
+- **Three clearly labelled modes**: Team meeting, Practice and Interview (permitted)
+  - **Practice** — mock questions (general + tailored to your job description), typed
     questions, or a scripted demo interview. Works offline with no API key.
-  - **Permitted assistance** — live transcription + answer suggestions. Requires you to confirm the
+  - **Interview (permitted)** — live transcription + answer suggestions. Requires you to confirm the
     interview organizer permits AI assistance before every session.
 - **Live transcript** with partial/final updates, timestamps and **You / Interviewer** labels
   (microphone and system audio are kept on separate channels).
@@ -76,7 +87,22 @@ model's `effort` level (default *Fastest*), and Anthropic's server-side refusal 
 facts → **Confirm facts & save**. Optionally paste the job description and press **Derive
 requirements**. Answers only use confirmed facts.
 
-### Run a live session
+### Run a team meeting
+
+1. **Session → Team meeting**. Set the audio source to **Microphone + system audio** so your
+   voice is told apart from your teammates' (see [platform notes](docs/PLATFORM_LIMITATIONS.md)
+   for macOS system audio and BlackHole).
+2. Optionally paste your **meeting notes / agenda** (status, dates, priorities); they are
+   remembered for next time.
+3. Tick *"Participants know I'm using live transcription"* and press **Start meeting**.
+4. Suggested replies, your communication insights and **Summarize meeting** appear on the right.
+   Try **Use demo meeting** first to see it all without audio or keys.
+
+**Screen sharing in Teams:** Copilot is a normal window. Share a single window
+(**Share → Window**) or keep Copilot on a second display, and your teammates won't see it in the
+share. If you share your **entire screen**, it will be visible.
+
+### Run a live interview session (only where permitted)
 
 1. **Session → Permitted assistance**, choose the audio source (*Microphone*, *System audio*,
    or *Microphone + system audio* — see [platform notes](docs/PLATFORM_LIMITATIONS.md) for macOS

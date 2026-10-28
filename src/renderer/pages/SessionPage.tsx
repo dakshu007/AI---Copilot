@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Headphones, MessageSquare, Shield, Shuffle, TriangleAlert } from 'lucide-react';
+import { Headphones, MessageSquare, NotebookPen, Shield, Shuffle, TriangleAlert, Users } from 'lucide-react';
 import { GENERAL_PRACTICE_QUESTIONS, practiceQuestionsForJob, type PracticeQuestion } from '@shared/core/practiceQuestions';
 import type { AnswerFormat, AudioSource, JobContext, SessionMode } from '@shared/types';
 import { useCopilot } from '../app/CopilotProvider';
 import { CaptureStatusIndicator } from '../components/CaptureStatusIndicator';
+import { CommunicationInsights } from '../components/CommunicationInsights';
+import { MeetingSummaryCard } from '../components/MeetingSummaryCard';
 import { LevelMeter } from '../components/LevelMeter';
 import { LiveTranscript } from '../components/LiveTranscript';
 import { QuestionCard } from '../components/QuestionCard';
@@ -11,6 +13,31 @@ import { ScreenShareNotice } from '../components/ScreenShareNotice';
 import { SessionControls } from '../components/SessionControls';
 import { api, errorMessage, unwrap } from '../lib/api';
 import { MOD, QUESTION_TYPE_LABELS, cx, isMac } from '../lib/format';
+
+const MODE_LABELS: Record<SessionMode, string> = {
+  practice: 'Practice',
+  meeting: 'Team meeting',
+  assist: 'Interview (permitted)',
+};
+
+const NOTES_KEY = 'copilot.meetingNotes';
+const MODE_KEY = 'copilot.lastMode';
+
+function readLocal(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeLocal(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable; the value just isn't remembered.
+  }
+}
 
 const SOURCE_LABELS: Record<AudioSource, string> = {
   microphone: 'Microphone',
@@ -20,7 +47,19 @@ const SOURCE_LABELS: Record<AudioSource, string> = {
 
 export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'settings'): void }) {
   const { settings, session, startSession, pauseSession, resumeSession, stopSession, updateSettings, notify, platform } = useCopilot();
-  const [mode, setMode] = useState<SessionMode>(session.mode ?? 'practice');
+  const [mode, setModeState] = useState<SessionMode>(() => {
+    const saved = readLocal(MODE_KEY);
+    return session.mode ?? (saved === 'meeting' || saved === 'assist' ? saved : 'practice');
+  });
+  const setMode = (value: SessionMode) => {
+    setModeState(value);
+    writeLocal(MODE_KEY, value);
+  };
+  const [meetingNotes, setMeetingNotesState] = useState(() => readLocal(NOTES_KEY));
+  const setMeetingNotes = (value: string) => {
+    setMeetingNotesState(value);
+    writeLocal(NOTES_KEY, value);
+  };
   const [acknowledged, setAcknowledged] = useState(false);
   const [practiceDemo, setPracticeDemo] = useState(false);
   const [assistDemo, setAssistDemo] = useState(false);
@@ -36,14 +75,15 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
   }, []);
 
   useEffect(() => {
-    if (session.mode) setMode(session.mode);
+    if (session.mode) setModeState(session.mode);
   }, [session.mode]);
 
   const running = session.state === 'listening' || session.state === 'paused' || session.state === 'requesting-permission' || session.state === 'stopping';
   const s = settings?.settings;
   const transcriptionIsDemo = s?.transcription.provider === 'demo';
   const llmIsDemo = s?.llm.provider === 'demo';
-  const liveAudio = mode === 'assist' && !assistDemo && !transcriptionIsDemo;
+  const isMeeting = mode === 'meeting';
+  const liveAudio = mode !== 'practice' && !assistDemo && !transcriptionIsDemo;
   const needsTranscriptionConsent = liveAudio && !s?.privacy.consentTranscription;
   const needsLlmConsent = !llmIsDemo && !s?.privacy.consentLlm;
   const missingTranscriptionKey = liveAudio && !settings?.secrets.transcription.set;
@@ -51,6 +91,7 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
 
   let startDisabledReason: string | undefined;
   if (mode === 'assist' && !acknowledged) startDisabledReason = 'Confirm the organizer permits AI assistance.';
+  else if (isMeeting && !acknowledged) startDisabledReason = 'Confirm participants know the meeting is transcribed.';
   else if (missingTranscriptionKey) startDisabledReason = 'Add a transcription API key in Settings, or use the demo script.';
   else if (needsTranscriptionConsent) startDisabledReason = 'Allow audio to be sent to your transcription provider (below).';
 
@@ -59,10 +100,11 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
     await startSession({
       mode,
       demo: mode === 'practice' ? practiceDemo : assistDemo || transcriptionIsDemo,
-      useAudio: mode === 'assist',
+      useAudio: mode !== 'practice',
       permittedAcknowledged: mode === 'practice' ? true : acknowledged,
+      meetingContext: isMeeting ? meetingNotes : undefined,
     });
-  }, [acknowledged, assistDemo, mode, practiceDemo, running, startDisabledReason, startSession, transcriptionIsDemo]);
+  }, [acknowledged, assistDemo, isMeeting, meetingNotes, mode, practiceDemo, running, startDisabledReason, startSession, transcriptionIsDemo]);
 
   const markQuestion = useCallback(
     async (text: string, segmentIds: string[] = [], source: 'manual' | 'practice' = 'manual') => {
@@ -128,15 +170,17 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
 
   if (!settings || !s) return null;
 
-  const showTranscript = mode === 'assist' || practiceDemo || session.segments.length > 0;
-  const channelLabels = s.audio.source === 'both' ? ['You', 'Interviewer'] : s.audio.source === 'system' ? ['Interviewer'] : ['Mic'];
+  const showTranscript = mode !== 'practice' || practiceDemo || session.segments.length > 0;
+  const otherSide = isMeeting ? 'Teammates' : 'Interviewer';
+  const channelLabels = s.audio.source === 'both' ? ['You', otherSide] : s.audio.source === 'system' ? [otherSide] : ['Mic'];
+  const hasFinalTranscript = session.segments.some((segment) => segment.status === 'final' && segment.text.trim());
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <section className="card space-y-3 p-3" aria-label="Session setup">
         <div className="flex flex-wrap items-center gap-3">
           <div className="inline-flex rounded-lg bg-slate-100 p-0.5 dark:bg-white/5" role="radiogroup" aria-label="Mode">
-            {(['practice', 'assist'] as const).map((value) => (
+            {(['practice', 'meeting', 'assist'] as const).map((value) => (
               <button
                 key={value}
                 type="button"
@@ -150,12 +194,12 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
                   mode === value ? 'bg-white text-slate-900 shadow-sm dark:bg-white/15 dark:text-white' : 'text-slate-600 dark:text-slate-400',
                 )}
               >
-                {value === 'practice' ? 'Practice mode' : 'Permitted assistance'}
+                {MODE_LABELS[value]}
               </button>
             ))}
           </div>
 
-          {mode === 'assist' && (
+          {mode !== 'practice' && (
             <label className="flex items-center gap-2 text-sm">
               <Headphones className="size-4 text-slate-500" aria-hidden />
               <span className="sr-only">Audio source</span>
@@ -180,11 +224,11 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
               type="checkbox"
               className="size-4 accent-violet-600"
               checked={mode === 'practice' ? practiceDemo : assistDemo || transcriptionIsDemo}
-              disabled={running || (mode === 'assist' && transcriptionIsDemo)}
+              disabled={running || (mode !== 'practice' && transcriptionIsDemo)}
               onChange={(event) => (mode === 'practice' ? setPracticeDemo(event.target.checked) : setAssistDemo(event.target.checked))}
               data-testid="demo-toggle"
             />
-            {mode === 'practice' ? 'Play demo interview' : 'Use demo script (no audio)'}
+            {mode === 'practice' ? 'Play demo interview' : isMeeting ? 'Use demo meeting (no audio)' : 'Use demo script (no audio)'}
           </label>
 
           <div className="ml-auto flex flex-wrap items-center gap-3">
@@ -193,7 +237,7 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
               state={session.state}
               canStart={!startDisabledReason}
               startDisabledReason={startDisabledReason}
-              startLabel={mode === 'practice' ? 'Start practice' : 'Start session'}
+              startLabel={mode === 'practice' ? 'Start practice' : isMeeting ? 'Start meeting' : 'Start session'}
               onStart={start}
               onPause={pauseSession}
               onResume={resumeSession}
@@ -201,6 +245,48 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
             />
           </div>
         </div>
+
+        {isMeeting && !running && (
+          <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm dark:border-emerald-400/20 dark:bg-emerald-500/10">
+            <p className="flex items-center gap-1.5 font-semibold text-emerald-800 dark:text-emerald-200">
+              <Users className="size-4" aria-hidden /> Team meeting coach
+            </p>
+            <p className="text-slate-700 dark:text-slate-300">
+              Suggests clear, respectful replies when teammates ask you something, coaches your speaking privately, and summarises decisions and action
+              items. Choose <strong>Microphone + system audio</strong> so your voice is separated from your teammates'.
+            </p>
+            <label className="block">
+              <span className="label flex items-center gap-1">
+                <NotebookPen className="size-3.5" aria-hidden /> Meeting notes / agenda (optional)
+              </span>
+              <textarea
+                className="input min-h-20 text-sm"
+                value={meetingNotes}
+                onChange={(event) => setMeetingNotes(event.target.value.slice(0, 5_000))}
+                placeholder={'e.g. Release v2.3 moved to Nov 14\nCheckout migration 80% done, blocked on DB credentials\nPriority: performance before dashboard'}
+                aria-label="Meeting notes"
+                data-testid="meeting-notes"
+              />
+              <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                Suggested replies only state facts from these notes and your confirmed profile. Notes stay on this Mac except for relevant lines sent with a
+                request.
+              </span>
+            </label>
+            <label className="flex items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                className="size-4 accent-emerald-600"
+                checked={acknowledged}
+                onChange={(event) => setAcknowledged(event.target.checked)}
+                data-testid="meeting-ack"
+              />
+              Participants know I'm using live transcription in this meeting.
+            </label>
+            {liveAudio && s.audio.source !== 'microphone' && platform && !platform.systemAudio.supported && (
+              <p className="text-xs text-amber-800 dark:text-amber-200">{platform.systemAudio.note}</p>
+            )}
+          </div>
+        )}
 
         {mode === 'assist' && !running && (
           <div className="rounded-lg border border-accent-200 bg-accent-50/60 p-3 text-sm dark:border-accent-400/20 dark:bg-accent-500/10">
@@ -310,12 +396,12 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
         <CaptureStatusIndicator
           state={session.state}
           isDemo={session.isDemo}
-          usesAudio={session.mode === 'assist' && !session.isDemo}
+          usesAudio={session.mode !== 'practice' && session.mode !== null && !session.isDemo}
           transcriptionStatus={session.transcriptionStatus}
         />
         {session.isDemo && running && <span className="badge bg-violet-600 text-white" data-testid="demo-banner">Demo data — not a real transcript</span>}
         <div className="ml-auto max-w-xl flex-1">
-          <ScreenShareNotice compact={s.ui.compact} />
+          <ScreenShareNotice compact={s.ui.compact} meeting={isMeeting} />
         </div>
       </div>
 
@@ -326,7 +412,11 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
               segments={session.segments}
               isDemo={session.isDemo}
               onMarkQuestion={(text, ids) => void markQuestion(text, ids)}
-              emptyHint={mode === 'assist' ? 'Press Start session. The transcript appears here as people speak.' : 'Press Start practice to play the demo interview.'}
+              emptyHint={
+                mode === 'practice'
+                  ? 'Press Start practice to play the demo interview.'
+                  : `Press ${isMeeting ? 'Start meeting' : 'Start session'}. The transcript appears here as people speak.`
+              }
             />
           ) : (
             <section className="card flex min-h-0 flex-1 flex-col" aria-labelledby="practice-heading">
@@ -387,10 +477,26 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
         </div>
 
         <section className="flex min-h-0 flex-col gap-3 overflow-y-auto pb-2" aria-label="Questions and suggested answers" data-testid="questions">
+          {isMeeting && (
+            <>
+              <MeetingSummaryCard
+                summary={session.summary}
+                summarizing={session.summarizing}
+                error={session.summaryError}
+                canSummarize={hasFinalTranscript}
+                onSummarize={() => void unwrap(api().session.summarize()).catch((error) => notify('error', errorMessage(error)))}
+              />
+              <CommunicationInsights segments={session.segments} />
+            </>
+          )}
           {session.questions.length === 0 ? (
             <div className="card flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-sm text-slate-500 dark:text-slate-400">
               <MessageSquare className="size-6" aria-hidden />
-              <p>Detected questions and suggested answers appear here.</p>
+              <p>
+                {isMeeting
+                  ? 'Questions and requests from teammates appear here with suggested replies.'
+                  : 'Detected questions and suggested answers appear here.'}
+              </p>
               <p className="text-xs">
                 Tip: select transcript text and press {MOD}+Shift+Q to answer it, or hover a line and click the ? button.
               </p>
@@ -404,6 +510,7 @@ export function SessionPage({ onNavigate }: { onNavigate(page: 'profile' | 'sett
                 generating={session.generating[question.id]}
                 error={session.answerErrors[question.id]}
                 highlighted={index === 0}
+                mode={session.mode ?? mode}
                 onGenerate={(format) => generate(question.id, format)}
                 onCancel={() => void api().session.cancel(question.id)}
                 onFeedback={(createdAt, feedback) => void api().session.feedback(question.id, createdAt, feedback)}

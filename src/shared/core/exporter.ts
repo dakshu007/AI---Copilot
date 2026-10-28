@@ -1,5 +1,7 @@
 import type { SessionRecord } from '../types';
 
+const MODE_LABELS = { practice: 'Practice', assist: 'Permitted assistance', meeting: 'Team meeting' } as const;
+
 function time(ms: number): string {
   return new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 }
@@ -18,18 +20,43 @@ export function sessionToMarkdown(session: SessionRecord): string {
     '',
     `- Started: ${time(session.startedAt)} UTC`,
     session.endedAt ? `- Ended: ${time(session.endedAt)} UTC` : '- Ended: (in progress)',
-    `- Mode: ${session.mode === 'practice' ? 'Practice' : 'Permitted assistance'}${session.isDemo ? ' (DEMO data)' : ''}`,
-    '',
-    '## Transcript',
+    `- Mode: ${MODE_LABELS[session.mode]}${session.isDemo ? ' (DEMO data)' : ''}`,
     '',
   ];
+  if (session.summary) {
+    const summary = session.summary;
+    lines.push('## Meeting summary', '', summary.summary, '');
+    if (summary.decisions.length) lines.push('**Decisions**', '', ...summary.decisions.map((d) => `- ${d}`), '');
+    if (summary.actionItems.length) {
+      lines.push(
+        '**Action items**',
+        '',
+        ...summary.actionItems.map((a) => `- [ ] ${a.task}${a.owner ? ` — ${a.owner}` : ''}${a.due ? ` (due ${a.due})` : ''}`),
+        '',
+      );
+    }
+    if (summary.openQuestions.length) lines.push('**Open questions**', '', ...summary.openQuestions.map((q) => `- ${q}`), '');
+  }
+  if (session.insights?.hasSpeakerSeparation) {
+    const i = session.insights;
+    lines.push(
+      '## Your speaking insights',
+      '',
+      `- Talk time: ${Math.round(i.yourShare * 100)}% (${Math.round(i.yourTalkMs / 1_000)} s)`,
+      `- Pace: ${i.wordsPerMinute ?? '—'} words per minute`,
+      `- Filler words: ${i.fillerCount} (${i.fillersPerHundredWords} per 100 words)`,
+      `- Questions you asked: ${i.questionsAsked}`,
+      '',
+    );
+  }
+  lines.push('## Transcript', '');
   const finals = session.segments.filter((s) => s.status === 'final' && s.text.trim());
   if (finals.length === 0) lines.push('_No transcript._');
   for (const segment of finals) {
     lines.push(`**[${offset(segment.startMs)}] ${segment.speaker ?? 'Speaker'}:** ${segment.text.trim()}`);
     lines.push('');
   }
-  lines.push('## Questions and suggested answers', '');
+  lines.push(session.mode === 'meeting' ? '## Questions and suggested replies' : '## Questions and suggested answers', '');
   if (session.questions.length === 0) lines.push('_No questions._');
   for (const question of session.questions) {
     lines.push(`### ${question.text}`, '', `_Type: ${question.type} · Source: ${question.source}_`, '');

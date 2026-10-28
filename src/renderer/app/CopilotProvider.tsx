@@ -10,6 +10,7 @@ export interface StartOptions {
   /** Practice sessions can run without audio (typed or mock questions). */
   useAudio: boolean;
   permittedAcknowledged: boolean;
+  meetingContext?: string;
 }
 
 interface CopilotContextValue {
@@ -91,6 +92,7 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
             segments: snapshot.segments,
             questions: [...snapshot.questions].reverse(),
             answersList: snapshot.answers,
+            summary: snapshot.summary,
           },
         }),
       )
@@ -154,7 +156,9 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
             },
           });
           audioChannels = info.channels;
-          channelLabels = info.channelLabels;
+          // In team meetings the other side of the call is your teammates.
+          channelLabels =
+            options.mode === 'meeting' ? info.channelLabels.map((label) => (label === 'Interviewer' ? 'Teammates' : label)) : info.channelLabels;
           sampleRate = info.sampleRate;
         }
         await unwrap(
@@ -165,6 +169,7 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
             sampleRate,
             demo: options.demo,
             permittedAcknowledged: options.permittedAcknowledged,
+            meetingContext: options.mode === 'meeting' ? options.meetingContext : undefined,
           }),
         );
         return true;

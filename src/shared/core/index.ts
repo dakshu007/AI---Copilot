@@ -14,3 +14,5 @@ export * from './practiceQuestions';
 export * from './demoScript';
 export * from './demoAnswer';
 export * from './exporter';
+export * from './communicationInsights';
+export * from './localSummary';

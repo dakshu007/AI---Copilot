@@ -1,6 +1,6 @@
-import type { AnswerFormat, ModelAnswer, QuestionType } from '../types';
+import type { AnswerFormat, ModelAnswer, QuestionType, SessionMode } from '../types';
 import type { BuiltContext } from './contextBuilder';
-import { INSUFFICIENT_EVIDENCE_SENTENCE } from './prompt';
+import { insufficientSentenceFor } from './prompt';
 import { contentTokens, overlapScore, truncate } from './text';
 
 /**
@@ -13,7 +13,10 @@ export function generateDemoAnswer(params: {
   questionType: QuestionType;
   format: AnswerFormat;
   context: BuiltContext;
+  mode?: SessionMode;
 }): ModelAnswer {
+  const meeting = params.mode === 'meeting';
+  const disclaimer = insufficientSentenceFor(params.mode);
   const tokens = contentTokens(params.question);
   const relevant = params.context.evidence
     .filter((item) => item.kind !== 'skill')
@@ -27,9 +30,21 @@ export function generateDemoAnswer(params: {
   const isAboutCandidate = params.questionType === 'role-fit' && fallback.length > 0;
   const chosen = relevant.length > 0 ? relevant : isAboutCandidate ? fallback : [];
 
+  if (chosen.length === 0 && meeting) {
+    return {
+      answer: `${disclaimer}. A good holding response: "That's a fair question. Let me confirm the details and come back to you by end of day."`,
+      evidenceUsed: [],
+      unsupportedClaims: [],
+      insufficientResumeEvidence: true,
+      generalExplanation: null,
+      followUpQuestion: 'Who else needs to be involved to answer this?',
+      whyThisAnswer: 'Nothing in your meeting notes or work profile matched, so the suggestion avoids committing to facts you have not confirmed.',
+    };
+  }
+
   if (chosen.length === 0) {
     return {
-      answer: `${INSUFFICIENT_EVIDENCE_SENTENCE}. Add a relevant example to your profile, or connect an AI provider in Settings for a general explanation.`,
+      answer: `${disclaimer}. Add a relevant example to your profile, or connect an AI provider in Settings for a general explanation.`,
       evidenceUsed: [],
       unsupportedClaims: [],
       insufficientResumeEvidence: true,
@@ -42,9 +57,12 @@ export function generateDemoAnswer(params: {
     };
   }
 
-  const facts = chosen.map((e) => truncate(e.text.replace(/\s+/g, ' '), 220));
+  const facts = chosen.map((e) => truncate(e.text.replace(/\s+/g, ' ').replace(/^Meeting note: /, ''), 220));
   let answer: string;
   switch (params.format) {
+    case 'diplomatic':
+      answer = `I hear you, and that's a fair point. Here's where I land: ${facts.join('; ')}. Let's agree on the next step and an owner before we move on.`;
+      break;
     case 'star': {
       const [first] = facts;
       answer = [
@@ -62,7 +80,9 @@ export function generateDemoAnswer(params: {
       answer = `Happy to talk about that. ${facts.map((f) => `One relevant example is ${f}.`).join(' ')}`;
       break;
     default:
-      answer = `The most relevant example from my background: ${facts.join('; ')}.`;
+      answer = meeting
+        ? `Good question. Based on what we know: ${facts.join('; ')}. I'll confirm anything still open and follow up.`
+        : `The most relevant example from my background: ${facts.join('; ')}.`;
   }
 
   return {

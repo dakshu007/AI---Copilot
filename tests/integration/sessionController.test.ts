@@ -1,4 +1,4 @@
-import type { AnswerProvider, AnswerRequest } from '../../src/main/services/llm/types';
+import type { AnswerProvider, AnswerRequest, SummaryRequest } from '../../src/main/services/llm/types';
 import { SessionController, type SessionControllerDeps } from '../../src/main/services/session/SessionController';
 import type {
   TranscriptionCallbacks,
@@ -8,7 +8,7 @@ import type {
 } from '../../src/main/services/transcription/types';
 import { ProviderError } from '../../src/shared/core/retry';
 import { SettingsSchema } from '../../src/shared/schemas';
-import type { CandidateProfile, ModelAnswer, SessionEvent, SessionRecord, Settings, StartSessionRequest } from '../../src/shared/types';
+import type { CandidateProfile, ModelAnswer, ModelSummary, SessionEvent, SessionRecord, Settings, StartSessionRequest } from '../../src/shared/types';
 import { makeProfile } from '../fixtures/profiles';
 
 class FakeTranscriptionSession implements TranscriptionSession {
@@ -80,6 +80,17 @@ class FakeAnswerProvider implements AnswerProvider {
   generate(request: AnswerRequest) {
     this.requests.push(request);
     return this.impl(request);
+  }
+  summaryRequests: SummaryRequest[] = [];
+  summarizeImpl: (request: SummaryRequest) => Promise<ModelSummary> = async () => ({
+    summary: 'Discussed the release.',
+    decisions: ['Ship on Friday'],
+    actionItems: [{ task: 'Send the plan', owner: 'You', due: 'today' }],
+    openQuestions: [],
+  });
+  summarize(request: SummaryRequest) {
+    this.summaryRequests.push(request);
+    return this.summarizeImpl(request);
   }
   async testConnection() {
     return { ok: true, message: 'ok' };
@@ -317,7 +328,7 @@ describe('SessionController', () => {
     t.stt.sendsAudioToCloud = false;
     await t.controller.start({ ...LIVE, demo: true, audioChannels: 0 });
     expect(t.ofType('state').at(-1)).toMatchObject({ state: 'listening', isDemo: true });
-    expect(t.deps.createTranscription).toHaveBeenCalledWith({ forceDemo: true });
+    expect(t.deps.createTranscription).toHaveBeenCalledWith({ forceDemo: true, mode: 'assist' });
     await t.controller.stop();
   });
 
@@ -356,5 +367,78 @@ describe('SessionController', () => {
     await t.controller.start(LIVE);
     await Promise.all([t.controller.stop(), t.controller.stop()]);
     expect(t.states().filter((s) => s === 'idle')).toHaveLength(1);
+  });
+
+  describe('team meeting mode', () => {
+    const MEETING: StartSessionRequest = {
+      mode: 'meeting',
+      audioChannels: 2,
+      sampleRate: 16_000,
+      channelLabels: ['You', 'Teammates'],
+      demo: false,
+      permittedAcknowledged: true,
+      meetingContext: '- Release moved to Friday 14 Nov\n- Checkout migration blocked on DB credentials',
+    };
+
+    it('requires participants to know the meeting is transcribed', async () => {
+      const t = setup();
+      await expect(t.controller.start({ ...MEETING, permittedAcknowledged: false })).rejects.toThrow(/participants know/);
+    });
+
+    it('labels teammates as the other side and uses meeting notes in replies', async () => {
+      const t = setup();
+      await t.controller.start(MEETING);
+      expect(t.stt.options.channels[1]).toEqual({ label: 'Teammates', role: 'interviewer' });
+      expect(t.deps.createTranscription).toHaveBeenCalledWith({ forceDemo: false, mode: 'meeting' });
+      t.stt.say('When is the release going out?');
+      await tick(80);
+      await tick();
+      const request = t.llm.requests[0]!;
+      expect(request.mode).toBe('meeting');
+      expect(request.context.text).toContain('VERIFIED WORK FACTS');
+      expect(request.context.evidence.some((e) => e.text.includes('Release moved to Friday'))).toBe(true);
+      // STAR is never the default in meetings.
+      expect(t.ofType('answer')[0]!.suggestion.format).not.toBe('star');
+      await t.controller.stop();
+    });
+
+    it('summarises the meeting and saves summary and insights to history', async () => {
+      const t = setup();
+      await t.controller.start(MEETING);
+      t.stt.say('Can you send the plan by end of day?');
+      t.stt.say('Sure, um, I will send it today.', 'candidate');
+      await tick(80);
+      await t.controller.stop();
+
+      await t.controller.summarize();
+      expect(t.ofType('summary-start')).toHaveLength(1);
+      const summary = t.ofType('summary')[0]!.summary;
+      expect(summary).toMatchObject({ summary: 'Discussed the release.', provider: 'Fake LLM', isDemo: false });
+      const request = t.llm.summaryRequests[0]!;
+      expect(request.transcript).toContain('Interviewer: Can you send the plan by end of day?');
+      expect(request.transcript).toContain('You: Sure, um, I will send it today.');
+      expect(request.meetingContext).toContain('Release moved');
+      expect(t.controller.snapshot().summary?.decisions).toEqual(['Ship on Friday']);
+
+      const saved = t.saved.at(-1)!;
+      expect(saved.mode).toBe('meeting');
+      expect(saved.title).toMatch(/^Team meeting/);
+      expect(saved.summary?.actionItems[0]!.task).toBe('Send the plan');
+      expect(saved.insights).toMatchObject({ hasSpeakerSeparation: true, fillerCount: 1 });
+    });
+
+    it('reports summary errors and needs a transcript and consent', async () => {
+      const t = setup();
+      await t.controller.summarize();
+      expect(t.ofType('summary-error')[0]!.message).toMatch(/no transcript/);
+
+      const noConsent = setup({ settings: { privacy: { consentLlm: false, consentTranscription: true } } });
+      await noConsent.controller.start(MEETING);
+      noConsent.stt.say('Shall we review the roadmap?');
+      await noConsent.controller.summarize();
+      expect(noConsent.ofType('summary-error')[0]!.message).toMatch(/Consent needed/);
+      expect(noConsent.llm.summaryRequests).toHaveLength(0);
+      await noConsent.controller.stop();
+    });
   });
 });

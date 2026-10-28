@@ -101,6 +101,46 @@ test('demo interview is clearly labelled, detects questions without duplicates, 
   await expect(page.getByTestId('capture-indicator')).toHaveAttribute('data-state', 'idle');
 });
 
+test('team meeting mode suggests replies, coaches speaking and summarises the meeting', async () => {
+  launched = await launchApp();
+  const { page } = launched;
+  await page.getByTestId('mode-meeting').click();
+  await expect(page.getByTestId('start-session')).toHaveText(/Start meeting/);
+  await expect(page.getByTestId('start-session')).toBeDisabled();
+  await page.getByTestId('meeting-notes').fill('Checkout migration is blocked on database credentials.\nPerformance fixes come before the dashboard.');
+  await page.getByTestId('meeting-ack').check();
+  await page.getByTestId('demo-toggle').check();
+  await page.getByTestId('start-session').click();
+
+  await expect(page.getByTestId('demo-banner')).toBeVisible();
+  await expect(page.getByTestId('transcript')).toContainText('Priya');
+  await expect(page.getByTestId('question-card')).toHaveCount(3, { timeout: 30_000 });
+  const questions = await page.getByTestId('question-text').allTextContents();
+  expect(questions.join(' ')).toMatch(/priority between the reporting dashboard and the performance fixes/);
+
+  // Replies use the meeting notes and offer meeting-appropriate styles.
+  const priorityCard = page.getByTestId('question-card').filter({ hasText: 'priority between' });
+  await expect(priorityCard.getByTestId('answer-text')).toContainText('Performance fixes come before the dashboard');
+  await expect(priorityCard.getByRole('button', { name: 'More diplomatic' })).toBeVisible();
+  await expect(priorityCard.getByRole('button', { name: 'STAR' })).toHaveCount(0);
+
+  // Private speaking insights.
+  await expect(page.getByTestId('insights')).toContainText('Your communication');
+  await expect(page.getByTestId('filler-count')).not.toHaveText('0');
+
+  // Meeting summary (offline in demo mode).
+  await page.getByTestId('summarize').click();
+  await expect(page.getByTestId('summary-body')).toContainText("I'll chase the platform team for the credentials today.");
+  await expect(page.getByTestId('meeting-summary')).toContainText('Offline summary');
+
+  await page.getByTestId('stop-session').click();
+  await expect(page.getByTestId('capture-indicator')).toHaveAttribute('data-state', 'idle');
+  // Notes are remembered for next time.
+  await page.getByTestId('nav-profile').click();
+  await page.getByTestId('nav-session').click();
+  await expect(page.getByTestId('meeting-notes')).toHaveValue(/database credentials/);
+});
+
 test('permitted assistance requires acknowledgement and captures microphone audio end to end', async () => {
   // Local mock of an OpenAI-compatible transcription endpoint.
   let uploads = 0;

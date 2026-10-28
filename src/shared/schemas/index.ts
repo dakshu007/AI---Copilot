@@ -20,7 +20,7 @@ export const TranscriptSegmentSchema = z.object({
 /* Questions and answers                                               */
 /* ------------------------------------------------------------------ */
 
-export const AnswerFormatSchema = z.enum(['concise', 'conversational', 'technical', 'star']);
+export const AnswerFormatSchema = z.enum(['concise', 'conversational', 'technical', 'star', 'diplomatic']);
 
 export const QuestionTypeSchema = z.enum([
   'behavioral',
@@ -81,7 +81,11 @@ export const SessionStateSchema = z.enum([
   'error',
 ]);
 
-export const SessionModeSchema = z.enum(['practice', 'assist']);
+/**
+ * practice — mock questions / demo; assist — permitted interview assistance;
+ * meeting — team meetings where you want clearer, better-structured responses.
+ */
+export const SessionModeSchema = z.enum(['practice', 'assist', 'meeting']);
 
 /* ------------------------------------------------------------------ */
 /* Settings                                                            */
@@ -243,6 +247,45 @@ export const JobContextSchema = z.object({
 /* Session history                                                     */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Meeting summary and communication insights                          */
+/* ------------------------------------------------------------------ */
+
+export const ActionItemSchema = z.object({
+  task: z.string().max(1_000),
+  owner: z.string().max(200).nullable(),
+  due: z.string().max(200).nullable(),
+});
+
+/** Shape requested from language models (every key required, nullable where optional). */
+export const ModelSummarySchema = z.object({
+  summary: z.string(),
+  decisions: z.array(z.string()),
+  actionItems: z.array(ActionItemSchema),
+  openQuestions: z.array(z.string()),
+});
+
+export const MeetingSummarySchema = ModelSummarySchema.extend({
+  createdAt: z.number(),
+  provider: z.string().default(''),
+  isDemo: z.boolean().default(false),
+});
+
+export const CommunicationInsightsSchema = z.object({
+  yourTalkMs: z.number(),
+  othersTalkMs: z.number(),
+  yourShare: z.number(),
+  yourWords: z.number(),
+  wordsPerMinute: z.number().nullable(),
+  fillerCount: z.number(),
+  fillersPerHundredWords: z.number(),
+  topFillers: z.array(z.object({ word: z.string(), count: z.number() })),
+  longestMonologueMs: z.number(),
+  questionsAsked: z.number(),
+  turns: z.number(),
+  hasSpeakerSeparation: z.boolean(),
+});
+
 export const SessionRecordSchema = z.object({
   id: z.string().min(1).max(128),
   startedAt: z.number(),
@@ -253,6 +296,8 @@ export const SessionRecordSchema = z.object({
   segments: z.array(TranscriptSegmentSchema).default([]),
   questions: z.array(DetectedQuestionSchema).default([]),
   answers: z.array(AnswerSuggestionSchema).default([]),
+  summary: MeetingSummarySchema.optional(),
+  insights: CommunicationInsightsSchema.optional(),
 });
 
 export const SessionSummarySchema = z.object({

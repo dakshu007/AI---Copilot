@@ -63,7 +63,7 @@ export function App() {
     return () => timers.forEach(clearTimeout);
   }, [session.notices, dismissNotice]);
 
-  const capturing = session.state === 'listening' && session.mode === 'assist' && !session.isDemo;
+  const capturing = session.state === 'listening' && (session.mode === 'assist' || session.mode === 'meeting') && !session.isDemo;
 
   return (
     <div className={cx('flex h-full', compact ? 'flex-col' : 'flex-row')}>
@@ -77,7 +77,7 @@ export function App() {
         {!compact && (
           <div className="mb-4 px-2">
             <p className="text-sm font-bold tracking-tight">Interview Copilot</p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Transparent interview practice</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Meetings, interviews &amp; practice</p>
           </div>
         )}
         {NAV.map((item, index) => {
@@ -134,10 +134,14 @@ function Onboarding({ onDone }: { onDone(): void }) {
         <h2 id="onboarding-title" className="text-xl font-semibold">Welcome to Interview Copilot</h2>
         <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
           <li>
+            <strong>Team meeting</strong> — suggested replies when teammates ask you something, private coaching on your talk time, pace and filler
+            words, and one-click summaries with decisions and action items.
+          </li>
+          <li>
             <strong>Practice mode</strong> — rehearse with mock questions or a demo interview. Works offline with no API key.
           </li>
           <li>
-            <strong>Permitted assistance</strong> — live transcription and answer suggestions, only for interviews where the organizer allows AI help.
+            <strong>Interview (permitted)</strong> — live transcription and answer suggestions, only for interviews where the organizer allows AI help.
           </li>
           <li>
             <strong>Transparent by design</strong> — this is a normal window. It is visible if you share your screen, and it never hides from Teams, Zoom or

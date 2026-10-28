@@ -1,4 +1,5 @@
 import { toSuggestion } from '@shared/core/answerParser';
+import { computeInsights } from '@shared/core/communicationInsights';
 import { buildContext } from '@shared/core/contextBuilder';
 import { createId } from '@shared/core/ids';
 import { suggestedFormatFor } from '@shared/core/questionClassifier';
@@ -11,6 +12,7 @@ import type {
   CandidateProfile,
   DetectedQuestion,
   JobContext,
+  MeetingSummary,
   SessionEvent,
   SessionMode,
   SessionRecord,
@@ -27,7 +29,7 @@ export interface SessionControllerDeps {
   getSettings(): Settings;
   getProfile(): Promise<CandidateProfile | null>;
   getJob(): Promise<JobContext | null>;
-  createTranscription(options: { forceDemo: boolean }): TranscriptionProvider;
+  createTranscription(options: { forceDemo: boolean; mode: SessionMode }): TranscriptionProvider;
   createAnswerProvider(): AnswerProvider;
   saveSession?(record: SessionRecord): Promise<void>;
   emit(event: SessionEvent): void;
@@ -63,6 +65,10 @@ export class SessionController {
   private readonly inflight = new Map<string, AbortController>();
   private answerProvider: AnswerProvider | null = null;
   private stopping = false;
+  private endedAt: number | undefined;
+  private meetingContext = '';
+  private summary: MeetingSummary | undefined;
+  private summaryController: AbortController | null = null;
   private notifiedUnverified = false;
   private readonly now: () => number;
 
@@ -83,6 +89,7 @@ export class SessionController {
       segments: this.transcript.all(),
       questions: [...this.questions.values()],
       answers: [...this.answers.values()].flat(),
+      summary: this.summary,
       message: this.message,
     };
   }
@@ -94,13 +101,16 @@ export class SessionController {
     if (request.mode === 'assist' && !request.permittedAcknowledged) {
       throw new SessionError('Confirm that the interview organizer permits AI assistance before starting.');
     }
+    if (request.mode === 'meeting' && !request.permittedAcknowledged) {
+      throw new SessionError('Confirm that the participants know this meeting is being transcribed before starting.');
+    }
     const settings = this.deps.getSettings();
     const needsTranscription = request.demo || request.audioChannels > 0;
 
     let provider: TranscriptionProvider | null = null;
     if (needsTranscription) {
       try {
-        provider = this.deps.createTranscription({ forceDemo: request.demo });
+        provider = this.deps.createTranscription({ forceDemo: request.demo, mode: request.mode });
       } catch (error) {
         throw new SessionError((error as Error).message);
       }
@@ -112,6 +122,8 @@ export class SessionController {
     }
 
     this.resetSessionData();
+    this.meetingContext = request.meetingContext?.trim().slice(0, 5_000) ?? '';
+    this.endedAt = undefined;
     this.sessionId = createId('session');
     this.startedAt = this.now();
     this.mode = request.mode;
@@ -198,6 +210,7 @@ export class SessionController {
     for (const controller of this.inflight.values()) controller.abort();
     this.inflight.clear();
 
+    this.endedAt = this.now();
     await this.persist();
     this.stopping = false;
     this.setState('idle');
@@ -259,6 +272,8 @@ export class SessionController {
         job,
         question: question.text,
         recentTranscript: this.transcript.recentContext(1_200),
+        mode: this.mode ?? undefined,
+        meetingContext: this.meetingContext,
       });
       const model = await withRetry(
         () =>
@@ -268,6 +283,7 @@ export class SessionController {
             maxWords: settings.answers.maxWords,
             context,
             signal: controller.signal,
+            mode: this.mode ?? undefined,
           }),
         {
           retries: this.deps.answerRetries ?? 2,
@@ -284,6 +300,7 @@ export class SessionController {
         provider: provider.label,
         isDemo: provider.isDemo,
         now: this.now(),
+        mode: this.mode ?? undefined,
       });
       const list = this.answers.get(questionId) ?? [];
       list.push(suggestion);
@@ -324,12 +341,73 @@ export class SessionController {
     await this.stop();
   }
 
+  /**
+   * Summarise the meeting so far (or the finished meeting): decisions, action items and open
+   * questions. Uses the configured AI provider, or an offline heuristic in demo mode.
+   */
+  async summarize(): Promise<void> {
+    const finals = this.transcript.finals();
+    if (finals.length === 0) {
+      this.deps.emit({ type: 'summary-error', message: 'There is no transcript to summarise yet.' });
+      return;
+    }
+    this.summaryController?.abort();
+    const controller = new AbortController();
+    this.summaryController = controller;
+    this.deps.emit({ type: 'summary-start' });
+    try {
+      const provider = this.getAnswerProvider();
+      if (!provider.isDemo && !this.deps.getSettings().privacy.consentLlm) {
+        throw new ProviderError(
+          'Consent needed: enable "Allow sending … to my AI provider" in Settings → Privacy to summarise with AI.',
+          { code: 'config' },
+        );
+      }
+      const lines: string[] = [];
+      let total = 0;
+      // Most recent ~12k characters keep cost and latency bounded on long meetings.
+      for (let i = finals.length - 1; i >= 0 && total < 12_000; i -= 1) {
+        const segment = finals[i]!;
+        const line = `${segment.role === 'candidate' ? 'You' : segment.speaker ?? 'Speaker'}: ${segment.text.trim()}`;
+        lines.unshift(line);
+        total += line.length + 1;
+      }
+      const model = await withRetry(
+        () =>
+          provider.summarize({
+            transcript: lines.join('\n'),
+            segments: finals,
+            meetingContext: this.meetingContext,
+            signal: controller.signal,
+          }),
+        { retries: this.deps.answerRetries ?? 2, signal: controller.signal },
+      );
+      if (controller.signal.aborted) return;
+      this.summary = { ...model, createdAt: this.now(), provider: provider.label, isDemo: provider.isDemo };
+      this.deps.emit({ type: 'summary', summary: this.summary });
+      if (this.state === 'idle') await this.persist();
+    } catch (error) {
+      if (isAbortError(error) || controller.signal.aborted) return;
+      this.deps.emit({
+        type: 'summary-error',
+        message: error instanceof ProviderError ? error.message : 'The meeting could not be summarised.',
+      });
+    } finally {
+      if (this.summaryController === controller) this.summaryController = null;
+    }
+  }
+
   private getAnswerProvider(): AnswerProvider {
     if (!this.answerProvider) this.answerProvider = this.deps.createAnswerProvider();
     return this.answerProvider;
   }
 
   private defaultFormat(question: DetectedQuestion, settings: Settings): AnswerFormat {
+    if (this.mode === 'meeting') {
+      // STAR suits interviews, not team conversations.
+      if (settings.answers.autoStyle && question.type === 'technical') return 'technical';
+      return settings.answers.defaultFormat === 'star' ? 'concise' : settings.answers.defaultFormat;
+    }
     if (settings.answers.autoStyle) {
       const suggested = suggestedFormatFor(question.type);
       if (suggested !== 'concise') return suggested;
@@ -387,20 +465,27 @@ export class SessionController {
 
   private toRecord(): SessionRecord {
     const date = new Date(this.startedAt);
+    const label = this.mode === 'assist' ? 'Assisted interview' : this.mode === 'meeting' ? 'Team meeting' : 'Practice';
+    const segments = this.transcript.finals();
     return {
       id: this.sessionId ?? createId('session'),
       startedAt: this.startedAt,
-      endedAt: this.now(),
+      endedAt: this.endedAt ?? this.now(),
       mode: this.mode ?? 'practice',
       isDemo: this.isDemo,
-      title: `${this.mode === 'assist' ? 'Assisted interview' : 'Practice'}${this.isDemo ? ' (demo)' : ''} — ${date.toLocaleString()}`,
-      segments: this.transcript.finals(),
+      title: `${label}${this.isDemo ? ' (demo)' : ''} — ${date.toLocaleString()}`,
+      segments,
       questions: [...this.questions.values()],
       answers: [...this.answers.values()].flat(),
+      summary: this.summary,
+      insights: segments.length > 0 ? computeInsights(segments) : undefined,
     };
   }
 
   private resetSessionData(): void {
+    this.summaryController?.abort();
+    this.summaryController = null;
+    this.summary = undefined;
     this.transcript.clear();
     this.questions = new Map();
     this.answers = new Map();
@@ -429,7 +514,8 @@ function buildChannels(request: StartSessionRequest): ChannelInfo[] {
   const channels: ChannelInfo[] = [];
   for (let i = 0; i < request.audioChannels; i += 1) {
     const label = labels[i] ?? (request.audioChannels === 2 ? (i === 0 ? 'You' : 'Interviewer') : 'Speaker');
-    const role = /^you$/i.test(label) ? 'candidate' : /interviewer/i.test(label) ? 'interviewer' : 'unknown';
+    // "interviewer" means "the other side of the conversation" (interviewer or teammates).
+    const role = /^you$/i.test(label) ? 'candidate' : /interviewer|teammate|participant|others/i.test(label) ? 'interviewer' : 'unknown';
     channels.push({ label, role });
   }
   return channels;

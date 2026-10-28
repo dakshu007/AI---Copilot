@@ -103,7 +103,7 @@ async function bootstrap(): Promise<void> {
     getSettings: () => settings.get(),
     getProfile: () => profiles.getProfile(),
     getJob: () => profiles.getJob(),
-    createTranscription: ({ forceDemo }) => createTranscriptionProvider(settings, { forceDemo, demoSpeed }),
+    createTranscription: ({ forceDemo, mode }) => createTranscriptionProvider(settings, { forceDemo, demoSpeed, mode }),
     createAnswerProvider: () => createAnswerProvider(settings),
     saveSession: (record) => history.save(record),
     emit,

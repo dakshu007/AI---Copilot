@@ -43,6 +43,7 @@ const api: CopilotApi = {
     generate: (questionId, format) => invoke(IPC.sessionGenerate, { questionId, format }),
     cancel: (questionId) => invoke(IPC.sessionCancel, questionId),
     feedback: (questionId, createdAt, feedback) => invoke(IPC.sessionFeedback, { questionId, createdAt, feedback }),
+    summarize: () => invoke(IPC.sessionSummarize),
     onEvent: (listener) => {
       const handler = (_event: Electron.IpcRendererEvent, payload: SessionEvent) => listener(payload);
       ipcRenderer.on(IPC.sessionEvent, handler);

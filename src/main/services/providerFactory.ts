@@ -7,7 +7,9 @@ import { DeepgramProvider } from './transcription/DeepgramProvider';
 import { DemoTranscriptionProvider } from './transcription/DemoTranscriptionProvider';
 import { WhisperChunkedProvider } from './transcription/WhisperChunkedProvider';
 import type { TranscriptionProvider } from './transcription/types';
+import { DEMO_MEETING_SCRIPT, DEMO_SCRIPT } from '@shared/core/demoScript';
 import { ProviderError } from '@shared/core/retry';
+import type { SessionMode } from '@shared/types';
 
 export class MissingKeyError extends ProviderError {
   constructor(what: string) {
@@ -28,11 +30,14 @@ export function createAnswerProvider(settings: SecureSettingsService): AnswerPro
 
 export function createTranscriptionProvider(
   settings: SecureSettingsService,
-  options: { forceDemo?: boolean; demoSpeed?: number } = {},
+  options: { forceDemo?: boolean; demoSpeed?: number; mode?: SessionMode } = {},
 ): TranscriptionProvider {
   const { transcription } = settings.get();
   if (options.forceDemo || transcription.provider === 'demo') {
-    return new DemoTranscriptionProvider({ speed: options.demoSpeed });
+    return new DemoTranscriptionProvider({
+      speed: options.demoSpeed,
+      script: options.mode === 'meeting' ? DEMO_MEETING_SCRIPT : DEMO_SCRIPT,
+    });
   }
   const apiKey = settings.getSecret('transcription');
   if (!apiKey) throw new MissingKeyError(transcription.provider === 'deepgram' ? 'Deepgram' : 'transcription');

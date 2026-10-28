@@ -1,9 +1,16 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { parseModelAnswer } from '@shared/core/answerParser';
-import { MODEL_ANSWER_JSON_SCHEMA, SYSTEM_PROMPT, buildUserPrompt } from '@shared/core/prompt';
+import { parseModelAnswer, parseModelSummary } from '@shared/core/answerParser';
+import {
+  MODEL_ANSWER_JSON_SCHEMA,
+  MODEL_SUMMARY_JSON_SCHEMA,
+  SUMMARY_SYSTEM_PROMPT,
+  buildSummaryPrompt,
+  buildUserPrompt,
+  systemPromptFor,
+} from '@shared/core/prompt';
 import { ProviderError, errorFromStatus, redactSecrets } from '@shared/core/retry';
-import type { ConnectionTestResult, ModelAnswer } from '@shared/types';
-import type { AnswerProvider, AnswerRequest } from './types';
+import type { ConnectionTestResult, ModelAnswer, ModelSummary, Result } from '@shared/types';
+import type { AnswerProvider, AnswerRequest, SummaryRequest } from './types';
 
 /** Models that accept `output_config.effort`. */
 const EFFORT_MODELS = /^claude-(fable|mythos|opus|sonnet|haiku)-5|^claude-opus-4-[5-8]|^claude-sonnet-4-6/;
@@ -31,56 +38,31 @@ export class AnthropicProvider implements AnswerProvider {
     this.client = options.client ?? new Anthropic({ apiKey: options.apiKey, maxRetries: 0, timeout: options.timeoutMs });
   }
 
-  async generate(request: AnswerRequest): Promise<ModelAnswer> {
-    const model = this.options.model;
-    const useFallbacks = FALLBACK_MODELS.test(model);
-    try {
-      const response = await this.client.beta.messages.create(
-        {
-          model,
-          max_tokens: 8_000,
-          system: SYSTEM_PROMPT,
-          messages: [
-            {
-              role: 'user',
-              content: buildUserPrompt({
-                question: request.question.text,
-                questionType: request.question.type,
-                format: request.format,
-                maxWords: request.maxWords,
-                context: request.context,
-              }),
-            },
-          ],
-          output_config: {
-            ...(EFFORT_MODELS.test(model) ? { effort: this.options.effort } : {}),
-            // Structured outputs: the response text is constrained to this JSON schema.
-            format: { type: 'json_schema', schema: MODEL_ANSWER_JSON_SCHEMA as unknown as Record<string, unknown> },
-          },
-          ...(useFallbacks ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
-        },
-        { signal: request.signal, timeout: this.options.timeoutMs },
-      );
+  generate(request: AnswerRequest): Promise<ModelAnswer> {
+    return this.structured({
+      system: systemPromptFor(request.mode),
+      user: buildUserPrompt({
+        question: request.question.text,
+        questionType: request.question.type,
+        format: request.format,
+        maxWords: request.maxWords,
+        context: request.context,
+        mode: request.mode,
+      }),
+      schema: MODEL_ANSWER_JSON_SCHEMA,
+      parse: parseModelAnswer,
+      signal: request.signal,
+    });
+  }
 
-      if (response.stop_reason === 'refusal') {
-        throw new ProviderError('Claude declined to answer this question. Try rephrasing it.', { code: 'refusal' });
-      }
-      if (response.stop_reason === 'max_tokens') {
-        throw new ProviderError('The answer was cut off. Try again or shorten the answer length.', {
-          code: 'invalid-response',
-          retryable: true,
-        });
-      }
-      // Validate before display: never trust the shape of model output.
-      const text = response.content
-        .map((block) => (block.type === 'text' ? block.text : ''))
-        .join('');
-      const parsed = parseModelAnswer(text);
-      if (!parsed.ok) throw new ProviderError(parsed.error, { code: 'invalid-response', retryable: true });
-      return parsed.value;
-    } catch (error) {
-      throw this.toProviderError(error);
-    }
+  summarize(request: SummaryRequest): Promise<ModelSummary> {
+    return this.structured({
+      system: SUMMARY_SYSTEM_PROMPT,
+      user: buildSummaryPrompt({ transcript: request.transcript, meetingContext: request.meetingContext }),
+      schema: MODEL_SUMMARY_JSON_SCHEMA,
+      parse: parseModelSummary,
+      signal: request.signal,
+    });
   }
 
   async testConnection(): Promise<ConnectionTestResult> {
@@ -90,6 +72,51 @@ export class AnthropicProvider implements AnswerProvider {
       return { ok: true, message: `Connected. Model ${this.options.model} is available.`, latencyMs: Date.now() - started };
     } catch (error) {
       return { ok: false, message: this.toProviderError(error).message };
+    }
+  }
+
+  /** One structured-output request: validate the response before anything is shown. */
+  private async structured<T>(params: {
+    system: string;
+    user: string;
+    schema: object;
+    parse: (raw: unknown) => Result<T>;
+    signal: AbortSignal;
+  }): Promise<T> {
+    const model = this.options.model;
+    const useFallbacks = FALLBACK_MODELS.test(model);
+    try {
+      const response = await this.client.beta.messages.create(
+        {
+          model,
+          max_tokens: 8_000,
+          system: params.system,
+          messages: [{ role: 'user', content: params.user }],
+          output_config: {
+            ...(EFFORT_MODELS.test(model) ? { effort: this.options.effort } : {}),
+            // Structured outputs: the response text is constrained to this JSON schema.
+            format: { type: 'json_schema', schema: params.schema as Record<string, unknown> },
+          },
+          ...(useFallbacks ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
+        },
+        { signal: params.signal, timeout: this.options.timeoutMs },
+      );
+
+      if (response.stop_reason === 'refusal') {
+        throw new ProviderError('Claude declined this request. Try rephrasing it.', { code: 'refusal' });
+      }
+      if (response.stop_reason === 'max_tokens') {
+        throw new ProviderError('The response was cut off. Try again or shorten the answer length.', {
+          code: 'invalid-response',
+          retryable: true,
+        });
+      }
+      const text = response.content.map((block) => (block.type === 'text' ? block.text : '')).join('');
+      const parsed = params.parse(text);
+      if (!parsed.ok) throw new ProviderError(parsed.error, { code: 'invalid-response', retryable: true });
+      return parsed.value;
+    } catch (error) {
+      throw this.toProviderError(error);
     }
   }
 
@@ -106,14 +133,13 @@ export class AnthropicProvider implements AnswerProvider {
       });
     }
     if (error instanceof Anthropic.APIError && typeof error.status === 'number') {
-      const mapped = errorFromStatus(error.status, 'Anthropic', error.headers?.get?.('retry-after') ?? null);
       if (error.status === 400) {
         return new ProviderError(
           redactSecrets(`Anthropic rejected the request: ${error.message}`, [this.options.apiKey]).slice(0, 300),
           { status: 400, code: 'config' },
         );
       }
-      return mapped;
+      return errorFromStatus(error.status, 'Anthropic', error.headers?.get?.('retry-after') ?? null);
     }
     return new ProviderError(
       redactSecrets(`Unexpected error from Anthropic: ${(error as Error)?.message ?? 'unknown'}`, [this.options.apiKey]),
